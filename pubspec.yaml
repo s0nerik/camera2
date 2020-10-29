@@ -1,0 +1,26 @@
+name: camera2
+description: A (more stable & faster) alternative to official camera plugin
+version: 0.0.1
+author: Alex Isaienko
+homepage: https://sonerik.dev
+
+environment:
+  sdk: ">=2.7.0 <3.0.0"
+  flutter: ">=1.20.0 <2.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: dev.sonerik.camera2
+        pluginClass: Camera2Plugin
+      ios:
+        pluginClass: Camera2Plugin
