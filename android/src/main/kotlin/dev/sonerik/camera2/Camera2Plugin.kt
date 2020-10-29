@@ -3,8 +3,6 @@ package dev.sonerik.camera2
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.os.Handler
 import android.os.Looper
@@ -12,11 +10,11 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.NonNull
 import androidx.camera.core.*
-import androidx.camera.lifecycle.ExperimentalCameraProviderConfiguration
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.google.common.util.concurrent.ListenableFuture
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -42,7 +40,8 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var mainExecutor: Executor
     private lateinit var pictureCallbackExecutor: Executor
 
-    @ExperimentalCameraProviderConfiguration
+    private val cameraProviderHolder = CameraProviderHolder()
+
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         this.flutterPluginBinding = flutterPluginBinding
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "dev.sonerik.camera2").apply {
@@ -50,6 +49,16 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         }
         mainExecutor = ContextCompat.getMainExecutor(flutterPluginBinding.applicationContext)
         pictureCallbackExecutor = ScheduledThreadPoolExecutor(1)
+        flutterPluginBinding.platformViewRegistry
+                .registerViewFactory(
+                        "cameraPreview",
+                        CameraPreviewFactory(
+                                messenger = flutterPluginBinding.binaryMessenger,
+                                pictureCallbackExecutor = pictureCallbackExecutor,
+                                cameraProviderHolder = cameraProviderHolder
+                        )
+                )
+
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
@@ -65,29 +74,6 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                     result.success(false)
                 }
             }
-            "takePicture" -> {
-                ImageCapture.Builder()
-                        .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
-                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                        .build()
-                        .takePicture(pictureCallbackExecutor, object : ImageCapture.OnImageCapturedCallback() {
-                            override fun onCaptureSuccess(image: ImageProxy) {
-                                super.onCaptureSuccess(image)
-                                val buffer = image.planes[0].buffer
-                                buffer.rewind()
-                                val bytes = ByteArray(buffer.capacity())
-                                buffer.get(bytes)
-                                val decodedBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                                val os = ByteArrayOutputStream()
-                                decodedBitmap.compress(Bitmap.CompressFormat.PNG, 100, os)
-                                result.success(os.toByteArray())
-                            }
-
-                            override fun onError(exception: ImageCaptureException) {
-                                super.onError(exception)
-                            }
-                        })
-            }
             else -> result.notImplemented()
         }
     }
@@ -97,14 +83,11 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
-        flutterPluginBinding.platformViewRegistry.registerViewFactory(
-                "cameraPreview",
-                CameraPreviewFactory(
-                        flutterPluginBinding.binaryMessenger,
-                        binding.activity as LifecycleOwner,
-                        pictureCallbackExecutor
-                )
-        )
+        cameraProviderHolder.lifecycleOwner = binding.activity as LifecycleOwner
+    }
+
+    override fun onDetachedFromActivity() {
+        cameraProviderHolder.lifecycleOwner = null
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -112,38 +95,84 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
     }
-
-    override fun onDetachedFromActivity() {
-    }
 }
 
 private class CameraPreviewFactory(
         private val messenger: BinaryMessenger,
-        private val lifecycleOwner: LifecycleOwner,
-        private val pictureCallbackExecutor: Executor
+        private val pictureCallbackExecutor: Executor,
+        private val cameraProviderHolder: CameraProviderHolder
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
-        return CameraPreviewView(
+        val view = CameraPreviewView(
                 id = viewId,
                 context = context,
                 messenger = messenger,
-                lifecycleOwner = lifecycleOwner,
                 pictureCallbackExecutor = pictureCallbackExecutor,
-                onDispose = {}
+                imageCapture = cameraProviderHolder.imageCapture,
+                onDispose = { cameraProviderHolder.onPreviewDisposed(viewId) }
         )
+        cameraProviderHolder.onPreviewCreated(context, viewId, view)
+        return view
+    }
+}
+
+private class CameraProviderHolder {
+    var lifecycleOwner: LifecycleOwner? = null
+
+    private var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>? = null
+    private val activePreviews = mutableMapOf<Int, CameraPreviewView>()
+
+    private val cameraProvider
+        get() = cameraProviderFuture?.get()
+
+    val imagePreview = Preview.Builder()
+            .build()
+
+    val imageAnalysis = ImageAnalysis.Builder()
+            .build()
+
+    val imageCapture = ImageCapture.Builder()
+            .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+
+    private val cameraSelector = CameraSelector.Builder()
+            .requireLensFacing(CameraSelector.LENS_FACING_BACK)
+            .build()
+
+    fun onPreviewCreated(context: Context, viewId: Int, previewView: CameraPreviewView) {
+        if (cameraProviderFuture == null) {
+            cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        }
+        if (activePreviews.isEmpty()) {
+            cameraProviderFuture?.addListener(Runnable {
+                cameraProvider?.bindToLifecycle(lifecycleOwner!!, cameraSelector, imageCapture, imagePreview)
+            }, ContextCompat.getMainExecutor(context))
+        }
+        activePreviews[viewId] = previewView
+        imagePreview.setSurfaceProvider(previewView.surfaceProvider)
+    }
+
+    fun onPreviewDisposed(viewId: Int) {
+        activePreviews -= viewId
+        if (activePreviews.isEmpty()) {
+            cameraProvider?.unbindAll()
+        } else {
+            activePreviews.values.lastOrNull()?.apply {
+                imagePreview.setSurfaceProvider(surfaceProvider)
+            }
+        }
     }
 }
 
 private class CameraPreviewView(
         context: Context,
         private val messenger: BinaryMessenger,
-        private val lifecycleOwner: LifecycleOwner,
         id: Int,
         private val pictureCallbackExecutor: Executor,
+        private val imageCapture: ImageCapture,
         private val onDispose: () -> Unit
 ) : PlatformView, MethodCallHandler {
-    private lateinit var cameraProvider: ProcessCameraProvider
-
     private val previewView = PreviewView(context)
     private val cameraShotOverlayView = View(context).apply { visibility = View.INVISIBLE }
     private val view = FrameLayout(context).apply {
@@ -155,29 +184,8 @@ private class CameraPreviewView(
     private val channel = MethodChannel(messenger, "dev.sonerik.camera2/preview_$id")
             .apply { setMethodCallHandler(this@CameraPreviewView) }
 
-    private val imagePreview = Preview.Builder()
-            .build()
-            .apply { setSurfaceProvider(previewView.surfaceProvider) }
-
-    private val imageAnalysis = ImageAnalysis.Builder()
-            .build()
-
-    private val imageCapture = ImageCapture.Builder()
-            .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .build()
-
-    private val cameraSelector = CameraSelector.Builder()
-            .requireLensFacing(CameraSelector.LENS_FACING_BACK)
-            .build()
-
-    init {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-        ProcessCameraProvider.getInstance(context).addListener(Runnable {
-            cameraProvider = cameraProviderFuture.get()
-            cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, imageCapture, imagePreview)
-        }, ContextCompat.getMainExecutor(context))
-    }
+    val surfaceProvider: Preview.SurfaceProvider
+        get() = previewView.surfaceProvider
 
     private fun freezePreview() {
         cameraShotOverlayView.background = BitmapDrawable(resources, previewView.bitmap)
@@ -192,7 +200,6 @@ private class CameraPreviewView(
 
     override fun dispose() {
         onDispose()
-        cameraProvider.unbindAll()
         channel.setMethodCallHandler(null)
     }
 
@@ -229,6 +236,9 @@ private class CameraPreviewView(
                         } catch (e: Exception) {
                             Handler(Looper.getMainLooper()).post {
                                 pictureBytesChannel.invokeMethod("error", e.localizedMessage)
+                                if (shouldFreezePreview) {
+                                    unfreezePreview()
+                                }
                             }
                         }
                         image.close()
@@ -237,6 +247,9 @@ private class CameraPreviewView(
                     override fun onError(exception: ImageCaptureException) {
                         Handler(Looper.getMainLooper()).post {
                             result.error("", exception.localizedMessage, exception.toString())
+                            if (shouldFreezePreview) {
+                                unfreezePreview()
+                            }
                         }
                     }
                 })

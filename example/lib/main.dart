@@ -14,7 +14,30 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: CameraScreen(),
+      home: StartScreen(),
+    );
+  }
+}
+
+class StartScreen extends StatelessWidget {
+  const StartScreen({Key key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Test app'),
+      ),
+      body: Center(
+        child: RaisedButton(
+          onPressed: () {
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (context) => CameraScreen(),
+            ));
+          },
+          child: Text('Open camera'),
+        ),
+      ),
     );
   }
 }
