@@ -92,10 +92,12 @@ class _CameraScreenState extends State<CameraScreen> {
     setState(() => _tookPicture = false);
     final result = await _ctrl.takePicture();
     setState(() => _tookPicture = true);
-    final imageBytes = await result.picture;
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (context) => PreviewScreen(photoBytes: imageBytes),
-    ));
+    if (result != null) {
+      final imageBytes = await result.picture;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (context) => PreviewScreen(photoBytes: imageBytes),
+      ));
+    }
     setState(() => _tookPicture = false);
   }
 }

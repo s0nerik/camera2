@@ -22,33 +22,72 @@ class CameraPreviewController {
   final int viewId;
   final MethodChannel _channel;
 
-  Future<TakePictureResult> takePicture({bool freezePreview = true}) async {
-    assert(freezePreview != null);
+  Completer<void> _takePictureCompleter = Completer()..complete();
 
-    final id = DateTime.now().microsecondsSinceEpoch;
-    await _channel.invokeMethod<Uint8List>('takePicture', {
-      'id': id,
-      'freezePreview': freezePreview,
-    });
-    final pictureCompleter = Completer<Uint8List>();
-    final pictureBytesChannel =
-        MethodChannel('dev.sonerik.camera2/takePicture/$id');
-    pictureBytesChannel.setMethodCallHandler((call) async {
-      pictureBytesChannel.setMethodCallHandler(null);
-      switch (call.method) {
-        case 'result':
-          final Uint8List photoBytes = call.arguments;
-          pictureCompleter.complete(photoBytes);
-          break;
-        case 'error':
-          final String error = call.arguments;
-          pictureCompleter.completeError(Exception(error));
-          break;
-        default:
-          pictureCompleter.completeError(UnsupportedError(call.method));
-      }
-    });
-    return TakePictureResult._(pictureCompleter.future);
+  /// Make a shot.
+  ///
+  /// Returns [TakePictureResult] after the photo is taken (or null if photo
+  /// wasn't taken at all). To get the actual photo bytes - wait for
+  /// [TakePictureResult.picture].
+  ///
+  /// Parameters:
+  ///
+  /// [freezePreview] - whether the preview should be paused until photo bytes
+  /// are read. Default value is `true`.
+  ///
+  /// [force] - whether to allow taking shots in parallel. If `false` - only
+  /// the first call of the quick succession would resolve to a result, all
+  /// other requests would resolve to null.
+  /// USE WITH CAUTION! Requesting too many photos simultaneously would lead to
+  /// errors on native side.
+  /// Default value is `false`.
+  Future<TakePictureResult> takePicture({
+    bool freezePreview = true,
+    bool force = false,
+  }) async {
+    assert(freezePreview != null);
+    assert(force != null);
+
+    if (force || _takePictureCompleter.isCompleted) {
+      // Can take a new shot
+      _takePictureCompleter = Completer();
+    } else {
+      // Camera is busy
+      return null;
+    }
+
+    try {
+      final id = DateTime.now().microsecondsSinceEpoch;
+      await _channel.invokeMethod<Uint8List>('takePicture', {
+        'id': id,
+        'freezePreview': freezePreview,
+      });
+      final pictureCompleter = Completer<Uint8List>();
+      final pictureBytesChannel =
+          MethodChannel('dev.sonerik.camera2/takePicture/$id');
+      pictureBytesChannel.setMethodCallHandler((call) async {
+        pictureBytesChannel.setMethodCallHandler(null);
+        switch (call.method) {
+          case 'result':
+            final Uint8List photoBytes = call.arguments;
+            pictureCompleter.complete(photoBytes);
+            _takePictureCompleter.complete();
+            break;
+          case 'error':
+            final String error = call.arguments;
+            pictureCompleter.completeError(Exception(error));
+            _takePictureCompleter.complete();
+            break;
+          default:
+            pictureCompleter.completeError(UnsupportedError(call.method));
+            _takePictureCompleter.complete();
+        }
+      });
+      return TakePictureResult._(pictureCompleter.future);
+    } catch (_) {
+      _takePictureCompleter.complete();
+      rethrow;
+    }
   }
 }
 
