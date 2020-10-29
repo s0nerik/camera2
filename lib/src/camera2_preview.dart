@@ -30,10 +30,13 @@ class CameraPreviewController {
   final VoidCallback onPhotoRead;
   final MethodChannel _channel;
 
-  Future<TakePictureResult> takePicture() async {
+  Future<TakePictureResult> takePicture({bool freezePreview = true}) async {
+    assert(freezePreview != null);
+
     final id = DateTime.now().microsecondsSinceEpoch;
     await _channel.invokeMethod<Uint8List>('takePicture', {
       'id': id,
+      'freezePreview': freezePreview,
     });
     onPhotoCaptured();
     final pictureCompleter = Completer<Uint8List>();

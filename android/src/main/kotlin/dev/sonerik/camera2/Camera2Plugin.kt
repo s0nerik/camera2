@@ -43,8 +43,6 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var mainExecutor: Executor
     private lateinit var pictureCallbackExecutor: Executor
 
-    private lateinit var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>
-
     @ExperimentalCameraProviderConfiguration
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         this.flutterPluginBinding = flutterPluginBinding
@@ -53,7 +51,6 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         }
         mainExecutor = ContextCompat.getMainExecutor(flutterPluginBinding.applicationContext)
         pictureCallbackExecutor = ScheduledThreadPoolExecutor(1)
-        cameraProviderFuture = ProcessCameraProvider.getInstance(flutterPluginBinding.applicationContext)
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
@@ -106,7 +103,6 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 CameraPreviewFactory(
                         flutterPluginBinding.binaryMessenger,
                         binding.activity as LifecycleOwner,
-                        cameraProviderFuture,
                         pictureCallbackExecutor
                 )
         )
@@ -125,11 +121,10 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 private class CameraPreviewFactory(
         private val messenger: BinaryMessenger,
         private val lifecycleOwner: LifecycleOwner,
-        private val cameraProviderFuture: ListenableFuture<ProcessCameraProvider>,
         private val pictureCallbackExecutor: Executor
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
-        return CameraPreview(context, messenger, lifecycleOwner, viewId, cameraProviderFuture, pictureCallbackExecutor)
+        return CameraPreview(context, messenger, lifecycleOwner, viewId, pictureCallbackExecutor)
     }
 }
 
@@ -138,7 +133,6 @@ private class CameraPreview(
         private val messenger: BinaryMessenger,
         private val lifecycleOwner: LifecycleOwner,
         id: Int,
-        cameraProviderFuture: ListenableFuture<ProcessCameraProvider>,
         private val pictureCallbackExecutor: Executor
 ) : PlatformView, MethodCallHandler {
     private lateinit var cameraProvider: ProcessCameraProvider
@@ -171,7 +165,8 @@ private class CameraPreview(
             .build()
 
     init {
-        cameraProviderFuture.addListener(Runnable {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        ProcessCameraProvider.getInstance(context).addListener(Runnable {
             cameraProvider = cameraProviderFuture.get()
             cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, imageCapture, imagePreview)
         }, ContextCompat.getMainExecutor(context))
@@ -196,8 +191,11 @@ private class CameraPreview(
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             "takePicture" -> {
-                freezePreview()
                 val id = call.argument<Long>("id")
+                val shouldFreezePreview = call.argument("freezePreview") ?: true
+                if (shouldFreezePreview) {
+                    freezePreview()
+                }
                 val pictureBytesChannel = MethodChannel(messenger, "dev.sonerik.camera2/takePicture/$id")
                 imageCapture.takePicture(pictureCallbackExecutor, object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureSuccess(image: ImageProxy) {
@@ -216,7 +214,9 @@ private class CameraPreview(
                             }
                             Handler(Looper.getMainLooper()).post {
                                 pictureBytesChannel.invokeMethod("result", resultBytes)
-                                unfreezePreview()
+                                if (shouldFreezePreview) {
+                                    unfreezePreview()
+                                }
                             }
                         } catch (e: Exception) {
                             Handler(Looper.getMainLooper()).post {
