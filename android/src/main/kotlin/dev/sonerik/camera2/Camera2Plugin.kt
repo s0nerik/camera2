@@ -17,7 +17,6 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import com.google.common.util.concurrent.ListenableFuture
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -124,16 +123,24 @@ private class CameraPreviewFactory(
         private val pictureCallbackExecutor: Executor
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
-        return CameraPreview(context, messenger, lifecycleOwner, viewId, pictureCallbackExecutor)
+        return CameraPreviewView(
+                id = viewId,
+                context = context,
+                messenger = messenger,
+                lifecycleOwner = lifecycleOwner,
+                pictureCallbackExecutor = pictureCallbackExecutor,
+                onDispose = {}
+        )
     }
 }
 
-private class CameraPreview(
+private class CameraPreviewView(
         context: Context,
         private val messenger: BinaryMessenger,
         private val lifecycleOwner: LifecycleOwner,
         id: Int,
-        private val pictureCallbackExecutor: Executor
+        private val pictureCallbackExecutor: Executor,
+        private val onDispose: () -> Unit
 ) : PlatformView, MethodCallHandler {
     private lateinit var cameraProvider: ProcessCameraProvider
 
@@ -146,7 +153,7 @@ private class CameraPreview(
     private val resources = context.resources
 
     private val channel = MethodChannel(messenger, "dev.sonerik.camera2/preview_$id")
-            .apply { setMethodCallHandler(this@CameraPreview) }
+            .apply { setMethodCallHandler(this@CameraPreviewView) }
 
     private val imagePreview = Preview.Builder()
             .build()
@@ -184,6 +191,7 @@ private class CameraPreview(
     override fun getView() = view
 
     override fun dispose() {
+        onDispose()
         cameraProvider.unbindAll()
         channel.setMethodCallHandler(null)
     }
