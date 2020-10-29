@@ -12,7 +12,6 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.NonNull
 import androidx.camera.core.*
-import androidx.camera.core.impl.OptionsBundle
 import androidx.camera.lifecycle.ExperimentalCameraProviderConfiguration
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -178,12 +177,12 @@ private class CameraPreview(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    private fun showShotOverlay() {
+    private fun freezePreview() {
         cameraShotOverlayView.background = BitmapDrawable(resources, previewView.bitmap)
         cameraShotOverlayView.visibility = View.VISIBLE
     }
 
-    private fun hideShotOverlay() {
+    private fun unfreezePreview() {
         cameraShotOverlayView.visibility = View.INVISIBLE
     }
 
@@ -197,7 +196,7 @@ private class CameraPreview(
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             "takePicture" -> {
-                showShotOverlay()
+                freezePreview()
                 val id = call.argument<Long>("id")
                 val pictureBytesChannel = MethodChannel(messenger, "dev.sonerik.camera2/takePicture/$id")
                 imageCapture.takePicture(pictureCallbackExecutor, object : ImageCapture.OnImageCapturedCallback() {
@@ -217,7 +216,7 @@ private class CameraPreview(
                             }
                             Handler(Looper.getMainLooper()).post {
                                 pictureBytesChannel.invokeMethod("result", resultBytes)
-                                hideShotOverlay()
+                                unfreezePreview()
                             }
                         } catch (e: Exception) {
                             Handler(Looper.getMainLooper()).post {
