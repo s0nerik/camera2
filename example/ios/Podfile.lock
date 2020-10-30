@@ -1,0 +1,28 @@
+PODS:
+  - camera2 (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+  - "permission_handler (5.0.1+1)":
+    - Flutter
+
+DEPENDENCIES:
+  - camera2 (from `.symlinks/plugins/camera2/ios`)
+  - Flutter (from `Flutter`)
+  - permission_handler (from `.symlinks/plugins/permission_handler/ios`)
+
+EXTERNAL SOURCES:
+  camera2:
+    :path: ".symlinks/plugins/camera2/ios"
+  Flutter:
+    :path: Flutter
+  permission_handler:
+    :path: ".symlinks/plugins/permission_handler/ios"
+
+SPEC CHECKSUMS:
+  camera2: dbcffbfc55607fb4eab41f6bdb15b488a486988e
+  Flutter: 0e3d915762c693b495b44d77113d4970485de6ec
+  permission_handler: eac8e15b4a1a3fba55b761d19f3f4e6b005d15b6
+
+PODFILE CHECKSUM: aafe91acc616949ddb318b77800a7f51bffa2a4c
+
+COCOAPODS: 1.9.3
