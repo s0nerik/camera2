@@ -132,8 +132,14 @@ class _Camera2PreviewState extends State<Camera2Preview> {
         creationParamsCodec: const StandardMessageCodec(),
       );
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
-      throw UnimplementedError();
-      return UiKitView();
+      return UiKitView(
+        viewType: 'cameraPreview',
+        onPlatformViewCreated: (id) {
+          final ctrl = CameraPreviewController._(id);
+          widget.onPlatformViewCreated?.call(ctrl);
+        },
+        creationParamsCodec: const StandardMessageCodec(),
+      );
     }
 
     return new Text(
