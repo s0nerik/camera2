@@ -38,14 +38,18 @@ private class CameraProviderHolder {
         //            session = AVCaptureSession()
         //        }
         if (activePreviews.count == 0) {
-            session = prepareSession()
             sessionQueue.async { [weak self] in
+                self?.session = self?.prepareSession()
                 self?.session?.startRunning()
+                DispatchQueue.main.async { [weak self] in
+                    previewView.captureSession = self?.session
+                }
             }
+        } else {
+            previewView.captureSession = session
         }
         activePreviews.setObject(previewView, forKey: NSNumber(value: viewId))
         activePreviewIds.append(viewId)
-        previewView.captureSession = session
     }
     
     func onPreviewDisposed(viewId: Int64) {
@@ -66,7 +70,7 @@ private class CameraProviderHolder {
     
     func prepareSession() -> AVCaptureSession? {
         let session = AVCaptureSession()
-
+        
         let videoDevice = AVCaptureDevice.devices(for: AVMediaType.video).first { (device) -> Bool in
             device.position == AVCaptureDevice.Position.back
         }
@@ -143,6 +147,8 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
         onDispose: (() -> Void)?
     ) {
         _view = UIPreviewView()
+        _view.videoPreviewLayer.videoGravity = AVLayerVideoGravity.resizeAspectFill
+
         _viewId = viewId
         _onDispose = onDispose
         super.init()
