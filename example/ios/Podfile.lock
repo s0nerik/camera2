@@ -19,7 +19,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/permission_handler/ios"
 
 SPEC CHECKSUMS:
-  camera2: dbcffbfc55607fb4eab41f6bdb15b488a486988e
+  camera2: 5a45ac7cd03a862941c6e48df901ce077901a830
   Flutter: 0e3d915762c693b495b44d77113d4970485de6ec
   permission_handler: eac8e15b4a1a3fba55b761d19f3f4e6b005d15b6
 

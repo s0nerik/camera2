@@ -26,12 +26,20 @@ public class SwiftCamera2Plugin: NSObject, FlutterPlugin {
     }
 }
 
+@available(iOS 11.0, *)
 private class CameraProviderHolder {
     private var session: AVCaptureSession?
     private let sessionQueue = DispatchQueue(label: "capture session queue", qos: .userInitiated)
     
     private var activePreviewIds = [Int64]()
     private let activePreviews = NSMapTable<NSNumber, CameraPreviewView>(keyOptions: .weakMemory, valueOptions: .weakMemory)
+    
+    private var _imageCapture: AVCapturePhotoOutput?
+    var imageCapture: AVCapturePhotoOutput? {
+        get {
+            return _imageCapture
+        }
+    }
     
     func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView) {
         if (session == nil) {
@@ -98,19 +106,19 @@ private class CameraProviderHolder {
             fatalError()
         }
         
-        let stillImageOutput = AVCaptureStillImageOutput()
-        stillImageOutput.outputSettings = [AVVideoCodecKey : AVVideoCodecJPEG]
+        let output = AVCapturePhotoOutput()
         
         if session.canAddInput(videoDeviceInput) {
             session.addInput(videoDeviceInput)
         }
-        if session.canAddOutput(stillImageOutput) {
-            session.addOutput(stillImageOutput)
+        if session.canAddOutput(output) {
+            session.addOutput(output)
         }
         session.commitConfiguration()
     }
 }
 
+@available(iOS 11.0, *)
 private class CameraPreviewFactory: NSObject, FlutterPlatformViewFactory {
     private let messenger: FlutterBinaryMessenger?
     private let cameraProviderHolder: CameraProviderHolder?
@@ -133,17 +141,21 @@ private class CameraPreviewFactory: NSObject, FlutterPlatformViewFactory {
             binaryMessenger: messenger,
             onDispose: {
                 self.cameraProviderHolder?.onPreviewDisposed(viewId: viewId)
-            }
+            },
+            cameraProviderHolder: cameraProviderHolder
         )
         cameraProviderHolder?.onPreviewCreated(viewId: viewId, previewView: view)
         return view
     }
 }
 
+@available(iOS 11.0, *)
 private class CameraPreviewView: NSObject, FlutterPlatformView {
     private var _view: UIPreviewView
     private let _viewId: Int64
     private let _onDispose: (() -> Void)?
+    private let _cameraProviderHolder: CameraProviderHolder?
+    private let _messenger: FlutterBinaryMessenger?
     
     var captureSession: AVCaptureSession? {
         get { return _view.videoPreviewLayer.session }
@@ -155,17 +167,20 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
         viewIdentifier viewId: Int64,
         arguments args: Any?,
         binaryMessenger messenger: FlutterBinaryMessenger?,
-        onDispose: (() -> Void)?
+        onDispose: (() -> Void)?,
+        cameraProviderHolder: CameraProviderHolder?
     ) {
         _view = UIPreviewView()
         _view.videoPreviewLayer.videoGravity = .resizeAspectFill
 
         _viewId = viewId
         _onDispose = onDispose
+        _cameraProviderHolder = cameraProviderHolder
+        _messenger = messenger
         super.init()
         
         let channel = FlutterMethodChannel(name: "dev.sonerik.camera2/preview_\(viewId)", binaryMessenger: messenger!)
-        channel.setMethodCallHandler({[weak self] (call: FlutterMethodCall, result: FlutterResult) -> Void in
+        channel.setMethodCallHandler({[weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
             self?.handleMethodCall(call: call, result: result)
         })
     }
@@ -181,8 +196,59 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
         return _view
     }
     
-    func handleMethodCall(call: FlutterMethodCall, result: FlutterResult) -> Void {
+    func handleMethodCall(call: FlutterMethodCall, result: @escaping FlutterResult) -> Void {
         NSLog("call: \(call.method)")
+        switch (call.method) {
+        case "takePicture":
+            guard let args = call.arguments as? [String: Any] else {
+                result(FlutterError(code: "", message: "Arguments must be provided", details: nil))
+                return
+            }
+            let id = args["id"] as! Int64
+            let pictureBytesChannel = FlutterMethodChannel(name: "dev.sonerik.camera2/takePicture/\(id)", binaryMessenger: _messenger!)
+
+            let photoSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+            photoSettings.flashMode = .auto
+            _cameraProviderHolder?.imageCapture?.capturePhoto(
+                with: photoSettings,
+                delegate: PhotoCaptureDelegate(result: result, pictureBytesChannel: pictureBytesChannel)
+            )
+        default:
+            result(FlutterMethodNotImplemented)
+        }
+    }
+}
+
+@available(iOS 11.0, *)
+private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
+    private let _result: FlutterResult
+    private let _pictureBytesChannel: FlutterMethodChannel
+    
+    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel) {
+        _result = result
+        _pictureBytesChannel = pictureBytesChannel
+        super.init()
+    }
+
+    func photoOutput(_: AVCapturePhotoOutput, didFinishCaptureFor: AVCaptureResolvedPhotoSettings, error: Error?) {
+        if let error = error {
+            _result(FlutterError(code: "", message: error.localizedDescription, details: nil))
+            return
+        }
+        _result(nil)
+    }
+    
+    func photoOutput(_: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        if let error = error {
+            _pictureBytesChannel.invokeMethod("error", arguments: error.localizedDescription)
+        } else {
+            if let imageData = photo.fileDataRepresentation() {
+                let resultData = FlutterStandardTypedData(bytes: imageData)
+                _pictureBytesChannel.invokeMethod("result", arguments: resultData)
+            } else {
+                _pictureBytesChannel.invokeMethod("error", arguments: "couldn't read photo bytes")
+            }
+        }
     }
 }
 
