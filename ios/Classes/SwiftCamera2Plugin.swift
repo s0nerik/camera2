@@ -28,38 +28,41 @@ public class SwiftCamera2Plugin: NSObject, FlutterPlugin {
 
 private class CameraProviderHolder {
     private var session: AVCaptureSession?
-    private let sessionQueue = DispatchQueue(label: "capture session queue")
+    private let sessionQueue = DispatchQueue(label: "capture session queue", qos: .userInitiated)
     
     private var activePreviewIds = [Int64]()
-    private let activePreviews = NSMapTable<NSNumber, CameraPreviewView>()
+    private let activePreviews = NSMapTable<NSNumber, CameraPreviewView>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     
     func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView) {
-        //        if (session == nil) {
-        //            session = AVCaptureSession()
-        //        }
-        if (activePreviews.count == 0) {
-            sessionQueue.async { [weak self] in
-                self?.session = self?.prepareSession()
-                self?.session?.startRunning()
-                DispatchQueue.main.async { [weak self] in
-                    previewView.captureSession = self?.session
-                }
-            }
-        } else {
-            previewView.captureSession = session
+        if (session == nil) {
+            session = AVCaptureSession()
         }
+//        detachLastPreview()
+        previewView.captureSession = session
+
+        if (activePreviews.count == 0) {
+            prepareSession(session: session!)
+            sessionQueue.async { [weak self] in
+                self?.session?.startRunning()
+            }
+        }
+
         activePreviews.setObject(previewView, forKey: NSNumber(value: viewId))
         activePreviewIds.append(viewId)
     }
     
     func onPreviewDisposed(viewId: Int64) {
+//        detachLastPreview()
         activePreviews.removeObject(forKey: NSNumber(value: viewId))
         if let idIndex = activePreviewIds.firstIndex(of: viewId) {
             activePreviewIds.remove(at: idIndex)
         }
         
         if (activePreviews.count == 0) {
-            session?.stopRunning()
+            let s = session
+            sessionQueue.async {
+                s?.stopRunning()
+            }
             session = nil
         } else {
             if let lastId = activePreviewIds.last {
@@ -68,8 +71,19 @@ private class CameraProviderHolder {
         }
     }
     
-    func prepareSession() -> AVCaptureSession? {
-        let session = AVCaptureSession()
+    func detachLastPreview() {
+        guard let viewId = activePreviewIds.last else {
+            return
+        }
+        let lastActivePreview = activePreviews.object(forKey: NSNumber(value: viewId))
+        DispatchQueue.main.async {
+            lastActivePreview?.captureSession = nil
+        }
+    }
+    
+    func prepareSession(session: AVCaptureSession) {
+        session.beginConfiguration()
+        session.sessionPreset = .photo
         
         let videoDevice = AVCaptureDevice.devices(for: AVMediaType.video).first { (device) -> Bool in
             device.position == AVCaptureDevice.Position.back
@@ -87,7 +101,6 @@ private class CameraProviderHolder {
         let stillImageOutput = AVCaptureStillImageOutput()
         stillImageOutput.outputSettings = [AVVideoCodecKey : AVVideoCodecJPEG]
         
-        session.beginConfiguration()
         if session.canAddInput(videoDeviceInput) {
             session.addInput(videoDeviceInput)
         }
@@ -95,8 +108,6 @@ private class CameraProviderHolder {
             session.addOutput(stillImageOutput)
         }
         session.commitConfiguration()
-        
-        return session
     }
 }
 
@@ -147,7 +158,7 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
         onDispose: (() -> Void)?
     ) {
         _view = UIPreviewView()
-        _view.videoPreviewLayer.videoGravity = AVLayerVideoGravity.resizeAspectFill
+        _view.videoPreviewLayer.videoGravity = .resizeAspectFill
 
         _viewId = viewId
         _onDispose = onDispose
