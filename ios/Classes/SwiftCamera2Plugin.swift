@@ -91,7 +91,6 @@ private class CameraProviderHolder {
     
     func prepareSession(session: AVCaptureSession) {
         session.beginConfiguration()
-        session.sessionPreset = .photo
         
         let videoDevice = AVCaptureDevice.devices(for: AVMediaType.video).first { (device) -> Bool in
             device.position == AVCaptureDevice.Position.back
@@ -107,11 +106,13 @@ private class CameraProviderHolder {
         }
         
         let output = AVCapturePhotoOutput()
+        _imageCapture = output
         
         if session.canAddInput(videoDeviceInput) {
             session.addInput(videoDeviceInput)
         }
         if session.canAddOutput(output) {
+            session.sessionPreset = .photo
             session.addOutput(output)
         }
         session.commitConfiguration()
@@ -156,6 +157,8 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
     private let _onDispose: (() -> Void)?
     private let _cameraProviderHolder: CameraProviderHolder?
     private let _messenger: FlutterBinaryMessenger?
+    
+    private var inProgressPhotoCaptureDelegates = [Int64: PhotoCaptureDelegate]()
     
     var captureSession: AVCaptureSession? {
         get { return _view.videoPreviewLayer.session }
@@ -209,10 +212,13 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
 
             let photoSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
             photoSettings.flashMode = .auto
-            _cameraProviderHolder?.imageCapture?.capturePhoto(
-                with: photoSettings,
-                delegate: PhotoCaptureDelegate(result: result, pictureBytesChannel: pictureBytesChannel)
+            let delegate = PhotoCaptureDelegate(
+                result: result,
+                pictureBytesChannel: pictureBytesChannel,
+                onComplete: { [weak self] in self?.inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = nil }
             )
+            inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = delegate
+            _cameraProviderHolder?.imageCapture?.capturePhoto(with: photoSettings, delegate: delegate)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -223,19 +229,29 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
 private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
     private let _result: FlutterResult
     private let _pictureBytesChannel: FlutterMethodChannel
+    private let _onComplete: () -> Void
     
-    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel) {
+    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel, onComplete: @escaping () -> Void) {
         _result = result
         _pictureBytesChannel = pictureBytesChannel
+        _onComplete = onComplete
         super.init()
     }
-
-    func photoOutput(_: AVCapturePhotoOutput, didFinishCaptureFor: AVCaptureResolvedPhotoSettings, error: Error?) {
-        if let error = error {
-            _result(FlutterError(code: "", message: error.localizedDescription, details: nil))
-            return
-        }
+    
+    deinit {
+        NSLog("deinit PhotoCaptureDelegate")
+    }
+    
+    func photoOutput(_ output: AVCapturePhotoOutput, willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
         _result(nil)
+    }
+    
+    func photoOutput(_ output: AVCapturePhotoOutput, didCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
+//        if let error = error {
+//            _result(FlutterError(code: "", message: error.localizedDescription, details: nil))
+//            return
+//        }
+//        _result(nil)
     }
     
     func photoOutput(_: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
@@ -249,6 +265,10 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
                 _pictureBytesChannel.invokeMethod("error", arguments: "couldn't read photo bytes")
             }
         }
+    }
+    
+    func photoOutput(_: AVCapturePhotoOutput, didFinishCaptureFor: AVCaptureResolvedPhotoSettings, error: Error?) {
+        _onComplete()
     }
 }
 
