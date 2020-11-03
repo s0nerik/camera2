@@ -28,31 +28,24 @@ public class SwiftCamera2Plugin: NSObject, FlutterPlugin {
 
 @available(iOS 11.0, *)
 private class CameraProviderHolder {
-    private var session: AVCaptureSession?
     private let sessionQueue = DispatchQueue(label: "capture session queue", qos: .userInitiated)
     
     private var activePreviewIds = [Int64]()
     private let activePreviews = NSMapTable<NSNumber, CameraPreviewView>(keyOptions: .weakMemory, valueOptions: .weakMemory)
-    
-    private var _imageCapture: AVCapturePhotoOutput?
-    var imageCapture: AVCapturePhotoOutput? {
-        get {
-            return _imageCapture
-        }
+    private let activePreviewSessions = NSMapTable<NSNumber, AVCaptureSession>(keyOptions: .weakMemory, valueOptions: .weakMemory)
+    private let activePreviewOutputs = NSMapTable<NSNumber, AVCapturePhotoOutput>(keyOptions: .weakMemory, valueOptions: .weakMemory)
+
+    func getPhotoOutput(viewId: Int64) -> AVCapturePhotoOutput? {
+        return activePreviewOutputs.object(forKey: NSNumber(value: viewId))
     }
-    
+
     func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView) {
-        if (session == nil) {
-            session = AVCaptureSession()
-        }
-//        detachLastPreview()
+        let session = AVCaptureSession()
+        prepareSession(session: session, viewId: viewId)
         previewView.captureSession = session
 
-        if (activePreviews.count == 0) {
-            prepareSession(session: session!)
-            sessionQueue.async { [weak self] in
-                self?.session?.startRunning()
-            }
+        sessionQueue.async {
+            session.startRunning()
         }
 
         activePreviews.setObject(previewView, forKey: NSNumber(value: viewId))
@@ -60,23 +53,22 @@ private class CameraProviderHolder {
     }
     
     func onPreviewDisposed(viewId: Int64) {
-//        detachLastPreview()
-        activePreviews.removeObject(forKey: NSNumber(value: viewId))
+        let key = NSNumber(value: viewId)
+
         if let idIndex = activePreviewIds.firstIndex(of: viewId) {
             activePreviewIds.remove(at: idIndex)
         }
         
-        if (activePreviews.count == 0) {
-            let s = session
+        if let session = activePreviewSessions.object(forKey: key) {
             sessionQueue.async {
-                s?.stopRunning()
+                session.stopRunning()
             }
-            session = nil
-        } else {
-            if let lastId = activePreviewIds.last {
-                activePreviews.object(forKey: NSNumber(value: lastId))?.captureSession = session
-            }
+            activePreviewSessions.removeObject(forKey: key)
         }
+
+        activePreviewOutputs.removeObject(forKey: key)
+
+        activePreviews.removeObject(forKey: key)
     }
     
     func detachLastPreview() {
@@ -89,9 +81,10 @@ private class CameraProviderHolder {
         }
     }
     
-    func prepareSession(session: AVCaptureSession) {
+    func prepareSession(session: AVCaptureSession, viewId: Int64) {
         session.beginConfiguration()
-        
+        session.sessionPreset = .photo
+
         let videoDevice = AVCaptureDevice.devices(for: AVMediaType.video).first { (device) -> Bool in
             device.position == AVCaptureDevice.Position.back
         }
@@ -106,16 +99,17 @@ private class CameraProviderHolder {
         }
         
         let output = AVCapturePhotoOutput()
-        _imageCapture = output
         
         if session.canAddInput(videoDeviceInput) {
             session.addInput(videoDeviceInput)
         }
         if session.canAddOutput(output) {
-            session.sessionPreset = .photo
             session.addOutput(output)
         }
         session.commitConfiguration()
+        
+        activePreviewOutputs.setObject(output, forKey: NSNumber(value: viewId))
+        activePreviewSessions.setObject(session, forKey: NSNumber(value: viewId))
     }
 }
 
@@ -218,7 +212,7 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
                 onComplete: { [weak self] in self?.inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = nil }
             )
             inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = delegate
-            _cameraProviderHolder?.imageCapture?.capturePhoto(with: photoSettings, delegate: delegate)
+            _cameraProviderHolder?.getPhotoOutput(viewId: _viewId)?.capturePhoto(with: photoSettings, delegate: delegate)
         default:
             result(FlutterMethodNotImplemented)
         }
