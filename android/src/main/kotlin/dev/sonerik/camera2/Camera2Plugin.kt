@@ -28,12 +28,9 @@ import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
-import java.io.ByteArrayOutputStream
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
+import java.io.*
 import java.util.concurrent.Executor
 import java.util.concurrent.ScheduledThreadPoolExecutor
-import kotlin.math.min
 
 /** Camera2Plugin */
 class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
@@ -244,32 +241,14 @@ private class CameraPreviewView(
                             result.success(null)
                         }
                         try {
-                            lateinit var resultBytes: ByteArray
-                            val buffer = image.planes[0].buffer
-                            buffer.rewind()
-                            ByteArrayOutputStream().use {
-                                while (buffer.hasRemaining()) {
-                                    it.write(buffer.get().toInt())
-                                }
-                                resultBytes = it.toByteArray()
-                            }
-                            if (centerCropAspectRatio != null && centerCropWidthPercent != null) {
-//                                val bitmap = decodeByteArray(resultBytes, image.width, image.height)
-                                val bitmap = BitmapFactory.decodeByteArray(resultBytes, 0, resultBytes.size)
-                                val rotatedBitmap = bakeExifOrientation(bitmap, image.imageInfo.rotationDegrees)
-
-                                val width = rotatedBitmap.width * centerCropWidthPercent
-                                val height = width / centerCropAspectRatio
-
-                                val croppedBitmap = centerCrop(rotatedBitmap, width.toInt(), height.toInt())
-
-                                ByteArrayOutputStream().use { stream ->
-                                    croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-                                    resultBytes = stream.toByteArray()
-                                }
-                                bitmap.recycle()
-                                rotatedBitmap.recycle()
-                                croppedBitmap.recycle()
+                            val resultBytes = if (centerCropAspectRatio != null && centerCropWidthPercent != null) {
+                                readImageCropped(
+                                        image,
+                                        centerCropAspectRatio = centerCropAspectRatio,
+                                        centerCropWidthPercent = centerCropWidthPercent
+                                )
+                            } else {
+                                readImageNonCropped(image)
                             }
                             Handler(Looper.getMainLooper()).post {
                                 pictureBytesChannel.invokeMethod("result", resultBytes)
@@ -303,24 +282,56 @@ private class CameraPreviewView(
 
 }
 
-private fun decodeByteArray(src: ByteArray, w: Int, h: Int): Bitmap {
-    // calculate sample size based on w/h
-    // calculate sample size based on w/h
-    val opts: BitmapFactory.Options = BitmapFactory.Options()
-    opts.inJustDecodeBounds = true
-    BitmapFactory.decodeByteArray(src, 0, src.size, opts)
-    if (opts.mCancel || opts.outWidth == -1 || opts.outHeight == -1) {
-        throw IllegalStateException()
+private fun readImageCropped(
+        image: ImageProxy,
+        centerCropAspectRatio: Double,
+        centerCropWidthPercent: Double
+): ByteArray {
+    lateinit var resultBytes: ByteArray
+    val buffer = image.planes[0].buffer
+    buffer.rewind()
+    ByteArrayOutputStream().use {
+        while (buffer.hasRemaining()) {
+            it.write(buffer.get().toInt())
+        }
+        resultBytes = it.toByteArray()
     }
-    opts.inSampleSize = min(opts.outWidth / w, opts.outHeight / h)
-    opts.inJustDecodeBounds = false
-    return BitmapFactory.decodeByteArray(src, 0, src.size, opts)
+    val bitmap = BitmapFactory.decodeByteArray(resultBytes, 0, resultBytes.size)
+    val rotatedBitmap = bakeExifOrientation(bitmap, image.imageInfo.rotationDegrees)
+
+    val width = rotatedBitmap.width * centerCropWidthPercent
+    val height = width / centerCropAspectRatio
+
+    val croppedBitmap = centerCrop(rotatedBitmap, width.toInt(), height.toInt())
+
+    ByteArrayOutputStream().use { stream ->
+        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+        resultBytes = stream.toByteArray()
+    }
+    croppedBitmap.recycle()
+
+    return resultBytes
+}
+
+private fun readImageNonCropped(
+        image: ImageProxy
+): ByteArray {
+    val buffer = image.planes[0].buffer
+    buffer.rewind()
+    return ByteArrayOutputStream().use {
+        while (buffer.hasRemaining()) {
+            it.write(buffer.get().toInt())
+        }
+        it.toByteArray()
+    }
 }
 
 private fun centerCrop(src: Bitmap, w: Int, h: Int): Bitmap {
     val srcX = src.width / 2 - w / 2
     val srcY = src.height / 2 - h / 2
-    return Bitmap.createBitmap(src, srcX, srcY, w, h)
+    val result = Bitmap.createBitmap(src, srcX, srcY, w, h)
+    src.recycle()
+    return result
 }
 
 private fun bakeExifOrientation(bitmap: Bitmap, rotationDegrees: Int): Bitmap {
@@ -329,6 +340,8 @@ private fun bakeExifOrientation(bitmap: Bitmap, rotationDegrees: Int): Bitmap {
     }
     val matrix = Matrix()
     matrix.postRotate(rotationDegrees.toFloat())
-    return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width,
+    val result = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width,
             bitmap.height, matrix, true)
+    bitmap.recycle()
+    return result
 }
