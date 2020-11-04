@@ -109,10 +109,9 @@ private class CameraPreviewFactory(
                 context = context,
                 messenger = messenger,
                 pictureCallbackExecutor = pictureCallbackExecutor,
-                imageCapture = cameraProviderHolder.imageCapture,
-                onDispose = { cameraProviderHolder.onPreviewDisposed(viewId) }
+                cameraProviderHolder = cameraProviderHolder
         )
-        cameraProviderHolder.onPreviewCreated(context, viewId, view)
+        cameraProviderHolder.onPreviewCreated(context, viewId, view, args)
         return view
     }
 }
@@ -132,11 +131,10 @@ private class CameraProviderHolder {
     val imageAnalysis = ImageAnalysis.Builder()
             .build()
 
-    val imageCapture = ImageCapture.Builder()
-            .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setTargetResolution(Size(720, 1280))
-            .build()
+    private lateinit var _imageCapture: ImageCapture
+
+    val imageCapture: ImageCapture
+        get() = _imageCapture
 
     private val cameraSelector = CameraSelector.Builder()
             .requireLensFacing(CameraSelector.LENS_FACING_BACK)
@@ -144,12 +142,29 @@ private class CameraProviderHolder {
 
     private lateinit var mainExecutor: Executor
 
-    fun onPreviewCreated(context: Context, viewId: Int, previewView: CameraPreviewView) {
+    private fun initImageCapture(args: Any?) {
+        var preferredPhotoSize: Size? = null
+        (args as? Map<*, *>)?.let {
+            val width = args["preferredPhotoWidth"] as? Int
+            val height = args["preferredPhotoHeight"] as? Int
+            if (width != null && height != null) {
+                preferredPhotoSize = Size(width, height)
+            }
+        }
+        val imageCaptureBuilder = ImageCapture.Builder()
+                .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+        preferredPhotoSize?.let { imageCaptureBuilder.setTargetResolution(it) }
+        _imageCapture = imageCaptureBuilder.build()
+    }
+
+    fun onPreviewCreated(context: Context, viewId: Int, previewView: CameraPreviewView, args: Any?) {
         mainExecutor = ContextCompat.getMainExecutor(context)
         if (cameraProviderFuture == null) {
             cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         }
         if (activePreviews.isEmpty()) {
+            initImageCapture(args)
             withCameraProvider { cameraProvider ->
                 cameraProvider?.bindToLifecycle(lifecycleOwner!!, cameraSelector, imageCapture, imagePreview)
             }
@@ -186,10 +201,9 @@ private class CameraProviderHolder {
 private class CameraPreviewView(
         context: Context,
         private val messenger: BinaryMessenger,
-        id: Int,
+        private val id: Int,
         private val pictureCallbackExecutor: Executor,
-        private val imageCapture: ImageCapture,
-        private val onDispose: () -> Unit
+        private val cameraProviderHolder: CameraProviderHolder
 ) : PlatformView, MethodCallHandler {
     private val previewView = PreviewView(context).apply {
         implementationMode = PreviewView.ImplementationMode.COMPATIBLE
@@ -219,7 +233,7 @@ private class CameraPreviewView(
     override fun getView() = view
 
     override fun dispose() {
-        onDispose()
+        cameraProviderHolder.onPreviewDisposed(id)
         channel.setMethodCallHandler(null)
     }
 
@@ -235,7 +249,7 @@ private class CameraPreviewView(
                 val centerCropWidthPercent = call.argument<Double?>("centerCropWidthPercent")
 
                 val pictureBytesChannel = MethodChannel(messenger, "dev.sonerik.camera2/takePicture/$id")
-                imageCapture.takePicture(pictureCallbackExecutor, object : ImageCapture.OnImageCapturedCallback() {
+                cameraProviderHolder.imageCapture.takePicture(pictureCallbackExecutor, object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureSuccess(image: ImageProxy) {
                         Handler(Looper.getMainLooper()).post {
                             result.success(null)

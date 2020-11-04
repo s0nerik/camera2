@@ -115,9 +115,16 @@ class Camera2Preview extends StatefulWidget {
   const Camera2Preview({
     Key key,
     this.onPlatformViewCreated,
+    this.preferredPhotoSize,
   }) : super(key: key);
 
   final PlatformViewCreatedCallback onPlatformViewCreated;
+
+  /// Preferred size of the resulting photo. Real photo can have different
+  /// dimensions. To crop the resulting photo - use
+  /// [CameraPreviewController.centerCropAspectRatio] and
+  /// [CameraPreviewController.centerCropWidthPercent] combination.
+  final Size preferredPhotoSize;
 
   @override
   _Camera2PreviewState createState() => _Camera2PreviewState();
@@ -138,27 +145,35 @@ class _Camera2PreviewState extends State<Camera2Preview> {
 
   @override
   Widget build(BuildContext context) {
+    final args = <String, dynamic>{
+      if (widget.preferredPhotoSize != null)
+        'preferredPhotoWidth': widget.preferredPhotoSize.width.toInt(),
+      if (widget.preferredPhotoSize != null)
+        'preferredPhotoHeight': widget.preferredPhotoSize.height.toInt(),
+    };
+
     if (defaultTargetPlatform == TargetPlatform.android) {
       return AndroidView(
         viewType: 'cameraPreview',
-        onPlatformViewCreated: (id) {
-          final ctrl = CameraPreviewController._(id);
-          widget.onPlatformViewCreated?.call(ctrl);
-        },
+        onPlatformViewCreated: _onPlatformViewCreated,
+        creationParams: args,
         creationParamsCodec: const StandardMessageCodec(),
       );
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       return UiKitView(
         viewType: 'cameraPreview',
-        onPlatformViewCreated: (id) {
-          final ctrl = CameraPreviewController._(id);
-          widget.onPlatformViewCreated?.call(ctrl);
-        },
+        onPlatformViewCreated: _onPlatformViewCreated,
+        creationParams: args,
         creationParamsCodec: const StandardMessageCodec(),
       );
     }
 
     return new Text(
         '$defaultTargetPlatform is not yet supported by this plugin');
+  }
+
+  void _onPlatformViewCreated(int id) {
+    final ctrl = CameraPreviewController._(id);
+    widget.onPlatformViewCreated?.call(ctrl);
   }
 }

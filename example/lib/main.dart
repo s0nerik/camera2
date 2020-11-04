@@ -80,6 +80,7 @@ class _CameraScreenState extends State<CameraScreen> {
         children: [
           if (_hasCameraPermission)
             Camera2Preview(
+              preferredPhotoSize: Size(720, 1280),
               onPlatformViewCreated: (ctrl) => _ctrl = ctrl,
             ),
           Positioned(
