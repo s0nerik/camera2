@@ -140,28 +140,44 @@ private class CameraProviderHolder {
             .requireLensFacing(CameraSelector.LENS_FACING_BACK)
             .build()
 
+    private lateinit var mainExecutor: Executor
+
     fun onPreviewCreated(context: Context, viewId: Int, previewView: CameraPreviewView) {
+        mainExecutor = ContextCompat.getMainExecutor(context)
         if (cameraProviderFuture == null) {
             cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         }
         if (activePreviews.isEmpty()) {
-            cameraProviderFuture?.addListener(Runnable {
+            withCameraProvider { cameraProvider ->
                 cameraProvider?.bindToLifecycle(lifecycleOwner!!, cameraSelector, imageCapture, imagePreview)
-            }, ContextCompat.getMainExecutor(context))
+            }
         }
         activePreviews[viewId] = previewView
-        imagePreview.setSurfaceProvider(previewView.surfaceProvider)
+        withCameraProvider {
+            imagePreview.setSurfaceProvider(previewView.surfaceProvider)
+        }
     }
 
     fun onPreviewDisposed(viewId: Int) {
         activePreviews -= viewId
         if (activePreviews.isEmpty()) {
-            cameraProvider?.unbindAll()
+            withCameraProvider { cameraProvider ->
+                imagePreview.setSurfaceProvider(null)
+                cameraProvider?.unbindAll()
+            }
         } else {
             activePreviews.values.lastOrNull()?.apply {
-                imagePreview.setSurfaceProvider(surfaceProvider)
+                withCameraProvider {
+                    imagePreview.setSurfaceProvider(surfaceProvider)
+                }
             }
         }
+    }
+
+    private fun withCameraProvider(fn: (ProcessCameraProvider?) -> Unit) {
+        cameraProviderFuture?.addListener(Runnable {
+            fn(cameraProvider)
+        }, mainExecutor)
     }
 }
 
@@ -173,7 +189,9 @@ private class CameraPreviewView(
         private val imageCapture: ImageCapture,
         private val onDispose: () -> Unit
 ) : PlatformView, MethodCallHandler {
-    private val previewView = PreviewView(context)
+    private val previewView = PreviewView(context).apply {
+        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+    }
     private val cameraShotOverlayView = View(context).apply { visibility = View.INVISIBLE }
     private val view = FrameLayout(context).apply {
         addView(previewView)
