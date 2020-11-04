@@ -41,12 +41,24 @@ class CameraPreviewController {
   /// USE WITH CAUTION! Requesting too many photos simultaneously would lead to
   /// errors on native side.
   /// Default value is `false`.
+  ///
+  /// [centerCropAspectRatio] - aspect ratio of rect cropped in the middle.
+  /// Optional. Must not be null if [centerCropWidthPercent] is not null.
+  ///
+  /// [centerCropWidthPercent] - amount of cropped area width in percents.
+  /// Optional. Must not be null if [centerCropAspectRatio] is not null.
   Future<TakePictureResult> takePicture({
     bool freezePreview = true,
     bool force = false,
+    double centerCropAspectRatio,
+    double centerCropWidthPercent,
   }) async {
     assert(freezePreview != null);
     assert(force != null);
+    assert(centerCropAspectRatio != null && centerCropWidthPercent != null ||
+        centerCropAspectRatio == null && centerCropWidthPercent == null);
+    assert(centerCropWidthPercent == null ||
+        centerCropWidthPercent >= 0 && centerCropWidthPercent <= 1);
 
     if (force || _takePictureCompleter.isCompleted) {
       // Can take a new shot
@@ -61,6 +73,10 @@ class CameraPreviewController {
       await _channel.invokeMethod<Uint8List>('takePicture', {
         'id': id,
         'freezePreview': freezePreview,
+        if (centerCropAspectRatio != null)
+          'centerCropAspectRatio': centerCropAspectRatio,
+        if (centerCropWidthPercent != null)
+          'centerCropWidthPercent': centerCropWidthPercent,
       });
       final pictureCompleter = Completer<Uint8List>();
       final pictureBytesChannel =

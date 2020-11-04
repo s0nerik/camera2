@@ -3,9 +3,11 @@ package dev.sonerik.camera2
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.*
 import android.graphics.drawable.BitmapDrawable
 import android.os.Handler
 import android.os.Looper
+import android.util.Size
 import android.view.View
 import android.widget.FrameLayout
 import androidx.annotation.NonNull
@@ -27,9 +29,11 @@ import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 import java.io.ByteArrayOutputStream
-import java.lang.Exception
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
 import java.util.concurrent.Executor
 import java.util.concurrent.ScheduledThreadPoolExecutor
+import kotlin.math.min
 
 /** Camera2Plugin */
 class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
@@ -134,6 +138,7 @@ private class CameraProviderHolder {
     val imageCapture = ImageCapture.Builder()
             .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setTargetResolution(Size(720, 1280))
             .build()
 
     private val cameraSelector = CameraSelector.Builder()
@@ -229,6 +234,9 @@ private class CameraPreviewView(
                 if (shouldFreezePreview) {
                     freezePreview()
                 }
+                val centerCropAspectRatio = call.argument<Double?>("centerCropAspectRatio")
+                val centerCropWidthPercent = call.argument<Double?>("centerCropWidthPercent")
+
                 val pictureBytesChannel = MethodChannel(messenger, "dev.sonerik.camera2/takePicture/$id")
                 imageCapture.takePicture(pictureCallbackExecutor, object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureSuccess(image: ImageProxy) {
@@ -244,6 +252,24 @@ private class CameraPreviewView(
                                     it.write(buffer.get().toInt())
                                 }
                                 resultBytes = it.toByteArray()
+                            }
+                            if (centerCropAspectRatio != null && centerCropWidthPercent != null) {
+//                                val bitmap = decodeByteArray(resultBytes, image.width, image.height)
+                                val bitmap = BitmapFactory.decodeByteArray(resultBytes, 0, resultBytes.size)
+                                val rotatedBitmap = bakeExifOrientation(bitmap, image.imageInfo.rotationDegrees)
+
+                                val width = rotatedBitmap.width * centerCropWidthPercent
+                                val height = width / centerCropAspectRatio
+
+                                val croppedBitmap = centerCrop(rotatedBitmap, width.toInt(), height.toInt())
+
+                                ByteArrayOutputStream().use { stream ->
+                                    croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+                                    resultBytes = stream.toByteArray()
+                                }
+                                bitmap.recycle()
+                                rotatedBitmap.recycle()
+                                croppedBitmap.recycle()
                             }
                             Handler(Looper.getMainLooper()).post {
                                 pictureBytesChannel.invokeMethod("result", resultBytes)
@@ -275,4 +301,34 @@ private class CameraPreviewView(
         }
     }
 
+}
+
+private fun decodeByteArray(src: ByteArray, w: Int, h: Int): Bitmap {
+    // calculate sample size based on w/h
+    // calculate sample size based on w/h
+    val opts: BitmapFactory.Options = BitmapFactory.Options()
+    opts.inJustDecodeBounds = true
+    BitmapFactory.decodeByteArray(src, 0, src.size, opts)
+    if (opts.mCancel || opts.outWidth == -1 || opts.outHeight == -1) {
+        throw IllegalStateException()
+    }
+    opts.inSampleSize = min(opts.outWidth / w, opts.outHeight / h)
+    opts.inJustDecodeBounds = false
+    return BitmapFactory.decodeByteArray(src, 0, src.size, opts)
+}
+
+private fun centerCrop(src: Bitmap, w: Int, h: Int): Bitmap {
+    val srcX = src.width / 2 - w / 2
+    val srcY = src.height / 2 - h / 2
+    return Bitmap.createBitmap(src, srcX, srcY, w, h)
+}
+
+private fun bakeExifOrientation(bitmap: Bitmap, rotationDegrees: Int): Bitmap {
+    if (rotationDegrees == 0) {
+        return bitmap
+    }
+    val matrix = Matrix()
+    matrix.postRotate(rotationDegrees.toFloat())
+    return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width,
+            bitmap.height, matrix, true)
 }

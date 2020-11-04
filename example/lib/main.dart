@@ -53,6 +53,9 @@ class _CameraScreenState extends State<CameraScreen> {
   CameraPreviewController _ctrl;
   bool _tookPicture = false;
 
+  static const _centerCropAspectRatio = 16 / 9;
+  static const _centerCropWidthPercent = 0.8;
+
   @override
   void initState() {
     super.initState();
@@ -106,6 +109,20 @@ class _CameraScreenState extends State<CameraScreen> {
               child: Text('TEST'),
             ),
           ),
+          Center(
+            child: SizedBox(
+              width:
+                  MediaQuery.of(context).size.width * _centerCropWidthPercent,
+              child: AspectRatio(
+                aspectRatio: _centerCropAspectRatio,
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -113,12 +130,14 @@ class _CameraScreenState extends State<CameraScreen> {
 
   Future<void> _takePicture() async {
     setState(() => _tookPicture = false);
-    final result = await _ctrl.takePicture();
+    final result = await _ctrl.takePicture(
+      centerCropAspectRatio: _centerCropAspectRatio,
+      centerCropWidthPercent: _centerCropWidthPercent,
+    );
     setState(() => _tookPicture = true);
     if (result != null) {
-      final imageBytes = await result.picture;
       Navigator.of(context).push(MaterialPageRoute(
-        builder: (context) => PreviewScreen(photoBytes: imageBytes),
+        builder: (context) => PreviewScreen(photoBytes: result.picture),
       ));
     }
     setState(() => _tookPicture = false);
@@ -131,7 +150,7 @@ class PreviewScreen extends StatelessWidget {
     @required this.photoBytes,
   }) : super(key: key);
 
-  final Uint8List photoBytes;
+  final Future<Uint8List> photoBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -145,7 +164,30 @@ class PreviewScreen extends StatelessWidget {
             builder: (context) => CameraScreen(),
           ));
         },
-        child: Image.memory(photoBytes),
+        child: FutureBuilder(
+            future: photoBytes,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return Container(
+                  color: Colors.yellow,
+                );
+              }
+              return Image(
+                image: MemoryImage(snapshot.data),
+                gaplessPlayback: true,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes
+                          : null,
+                    ),
+                  );
+                },
+              );
+            }),
       ),
     );
   }
