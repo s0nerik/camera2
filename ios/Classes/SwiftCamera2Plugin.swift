@@ -39,9 +39,9 @@ private class CameraProviderHolder {
         return activePreviewOutputs.object(forKey: NSNumber(value: viewId))
     }
 
-    func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView) {
+    func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView, previewArgs: CameraPreviewArgs?) {
         let session = AVCaptureSession()
-        prepareSession(session: session, viewId: viewId)
+        prepareSession(session: session, viewId: viewId, previewArgs: previewArgs)
         previewView.captureSession = session
 
         sessionQueue.async {
@@ -81,10 +81,20 @@ private class CameraProviderHolder {
         }
     }
     
-    func prepareSession(session: AVCaptureSession, viewId: Int64) {
+    func prepareSession(session: AVCaptureSession, viewId: Int64, previewArgs: CameraPreviewArgs?) {
         session.beginConfiguration()
-        session.sessionPreset = .photo
 
+        // Set preferred resolution
+        if previewArgs?.preferredPhotoWidth != nil && previewArgs?.preferredPhotoHeight != nil {
+            session.sessionPreset = presetFromPreferredResolution(
+                width: previewArgs!.preferredPhotoWidth!,
+                height:previewArgs!.preferredPhotoHeight!
+            )
+        } else {
+            session.sessionPreset = .photo
+        }
+
+        // Init camera input device
         let videoDevice = AVCaptureDevice.devices(for: AVMediaType.video).first { (device) -> Bool in
             device.position == AVCaptureDevice.Position.back
         }
@@ -98,6 +108,7 @@ private class CameraProviderHolder {
             fatalError()
         }
         
+        // Init camera output
         let output = AVCapturePhotoOutput()
         
         if session.canAddInput(videoDeviceInput) {
@@ -108,9 +119,29 @@ private class CameraProviderHolder {
         }
         session.commitConfiguration()
         
+        // Store output and AVCaptureSession for later access
         activePreviewOutputs.setObject(output, forKey: NSNumber(value: viewId))
         activePreviewSessions.setObject(session, forKey: NSNumber(value: viewId))
     }
+    
+    private func presetFromPreferredResolution(width: Int, height: Int) -> AVCaptureSession.Preset {
+        let pixels = width * height
+        if (pixels <= 1280 * 720) {
+            return .hd1280x720
+        }
+        if (pixels <= 1920 * 1080) {
+            return .hd1920x1080
+        }
+        if (pixels <= 3840 * 2160) {
+            return .hd4K3840x2160
+        }
+        return .photo
+    }
+}
+
+private struct CameraPreviewArgs {
+    let preferredPhotoWidth: Int?
+    let preferredPhotoHeight: Int?
 }
 
 @available(iOS 11.0, *)
@@ -123,12 +154,23 @@ private class CameraPreviewFactory: NSObject, FlutterPlatformViewFactory {
         self.cameraProviderHolder = cameraProviderHolder
         super.init()
     }
-    
+
+    func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+        return FlutterStandardMessageCodec.sharedInstance()
+    }
+
     func create(
         withFrame frame: CGRect,
         viewIdentifier viewId: Int64,
         arguments args: Any?
     ) -> FlutterPlatformView {
+        var previewArgs: CameraPreviewArgs?
+        if let args = args as? Dictionary<String, Any?> {
+            previewArgs = CameraPreviewArgs(
+                preferredPhotoWidth: args["preferredPhotoWidth"] as? Int,
+                preferredPhotoHeight: args["preferredPhotoHeight"] as? Int
+            )
+        }
         let view = CameraPreviewView(
             frame: frame,
             viewIdentifier: viewId,
@@ -139,7 +181,7 @@ private class CameraPreviewFactory: NSObject, FlutterPlatformViewFactory {
             },
             cameraProviderHolder: cameraProviderHolder
         )
-        cameraProviderHolder?.onPreviewCreated(viewId: viewId, previewView: view)
+        cameraProviderHolder?.onPreviewCreated(viewId: viewId, previewView: view, previewArgs: previewArgs)
         return view
     }
 }
