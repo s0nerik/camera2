@@ -60,7 +60,9 @@ class CameraPreviewController {
   ///
   /// [flash] - camera flashlight mode. Default: [FlashType.auto].
   ///
-  /// [jpegQuality] - result JPEG compression quality. Default: 80.
+  /// [croppedJpegQuality] - Cropped photo JPEG compression quality. Non-cropped
+  /// photos are returned in the same quality they were shot.
+  /// Default: 80.
   ///
   /// [centerCropAspectRatio] - aspect ratio of rect cropped in the middle.
   /// Optional. Must not be null if [centerCropWidthPercent] is not null.
@@ -71,14 +73,14 @@ class CameraPreviewController {
     bool freezePreview = true,
     bool force = false,
     FlashType flash = FlashType.auto,
-    int jpegQuality = 80,
+    int croppedJpegQuality = 80,
     double centerCropAspectRatio,
     double centerCropWidthPercent,
   }) async {
     assert(freezePreview != null);
     assert(force != null);
     assert(flash != null);
-    assert(jpegQuality > 0 && jpegQuality <= 100);
+    assert(croppedJpegQuality > 0 && croppedJpegQuality <= 100);
     assert(centerCropAspectRatio != null && centerCropWidthPercent != null ||
         centerCropAspectRatio == null && centerCropWidthPercent == null);
     assert(centerCropWidthPercent == null ||
@@ -98,7 +100,7 @@ class CameraPreviewController {
         'id': id,
         'freezePreview': freezePreview,
         'flash': flash.asString(),
-        'jpegQuality': jpegQuality,
+        'jpegQuality': croppedJpegQuality,
         if (centerCropAspectRatio != null)
           'centerCropAspectRatio': centerCropAspectRatio,
         if (centerCropWidthPercent != null)

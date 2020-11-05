@@ -156,7 +156,7 @@ class _CameraScreenState extends State<CameraScreen> {
       centerCropAspectRatio: _centerCropAspectRatio,
       centerCropWidthPercent: _centerCropWidthPercent,
       flash: _flashType,
-      jpegQuality: 100,
+      croppedJpegQuality: 100,
     );
     setState(() => _tookPicture = true);
     if (result != null) {

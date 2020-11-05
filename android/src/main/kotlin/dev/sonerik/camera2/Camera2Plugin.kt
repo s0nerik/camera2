@@ -248,6 +248,12 @@ private class CameraPreviewView(
                 val centerCropAspectRatio = call.argument<Double?>("centerCropAspectRatio")
                 val centerCropWidthPercent = call.argument<Double?>("centerCropWidthPercent")
 
+                when (call.argument<String>("flash")) {
+                    "on" -> cameraProviderHolder.imageCapture.flashMode = ImageCapture.FLASH_MODE_ON
+                    "off" -> cameraProviderHolder.imageCapture.flashMode = ImageCapture.FLASH_MODE_OFF
+                    else -> cameraProviderHolder.imageCapture.flashMode = ImageCapture.FLASH_MODE_AUTO
+                }
+
                 val pictureBytesChannel = MethodChannel(messenger, "dev.sonerik.camera2/takePicture/$id")
                 cameraProviderHolder.imageCapture.takePicture(pictureCallbackExecutor, object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureSuccess(image: ImageProxy) {
@@ -259,7 +265,8 @@ private class CameraPreviewView(
                                 readImageCropped(
                                         image,
                                         centerCropAspectRatio = centerCropAspectRatio,
-                                        centerCropWidthPercent = centerCropWidthPercent
+                                        centerCropWidthPercent = centerCropWidthPercent,
+                                        quality = call.argument<Int>("jpegQuality")!!
                                 )
                             } else {
                                 readImageNonCropped(image)
@@ -299,7 +306,8 @@ private class CameraPreviewView(
 private fun readImageCropped(
         image: ImageProxy,
         centerCropAspectRatio: Double,
-        centerCropWidthPercent: Double
+        centerCropWidthPercent: Double,
+        quality: Int
 ): ByteArray {
     lateinit var resultBytes: ByteArray
     val buffer = image.planes[0].buffer
@@ -319,7 +327,7 @@ private fun readImageCropped(
     val croppedBitmap = centerCrop(rotatedBitmap, width.toInt(), height.toInt())
 
     ByteArrayOutputStream().use { stream ->
-        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+        croppedBitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
         resultBytes = stream.toByteArray()
     }
     croppedBitmap.recycle()
