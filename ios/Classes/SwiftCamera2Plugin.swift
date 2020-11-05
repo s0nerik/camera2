@@ -245,12 +245,18 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
             }
             let id = args["id"] as! Int64
             let pictureBytesChannel = FlutterMethodChannel(name: "dev.sonerik.camera2/takePicture/\(id)", binaryMessenger: _messenger!)
-
+            
+            let captureArgs = PhotoCaptureArgs(
+                centerCropAspectRatio: args["centerCropAspectRatio"] as? Double,
+                centerCropWidthPercent: args["centerCropWidthPercent"] as? Double
+            )
+            
             let photoSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
             photoSettings.flashMode = .auto
             let delegate = PhotoCaptureDelegate(
                 result: result,
                 pictureBytesChannel: pictureBytesChannel,
+                args: captureArgs,
                 onComplete: { [weak self] in self?.inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = nil }
             )
             inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = delegate
@@ -261,15 +267,22 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
     }
 }
 
+private struct PhotoCaptureArgs {
+    let centerCropAspectRatio: Double?
+    let centerCropWidthPercent: Double?
+}
+
 @available(iOS 11.0, *)
 private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
     private let _result: FlutterResult
     private let _pictureBytesChannel: FlutterMethodChannel
+    private let _args: PhotoCaptureArgs?
     private let _onComplete: () -> Void
-    
-    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel, onComplete: @escaping () -> Void) {
+
+    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel, args: PhotoCaptureArgs?, onComplete: @escaping () -> Void) {
         _result = result
         _pictureBytesChannel = pictureBytesChannel
+        _args = args
         _onComplete = onComplete
         super.init()
     }
@@ -282,19 +295,23 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
         _result(nil)
     }
     
-    func photoOutput(_ output: AVCapturePhotoOutput, didCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
-//        if let error = error {
-//            _result(FlutterError(code: "", message: error.localizedDescription, details: nil))
-//            return
-//        }
-//        _result(nil)
-    }
-    
     func photoOutput(_: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error = error {
             _pictureBytesChannel.invokeMethod("error", arguments: error.localizedDescription)
         } else {
-            if let imageData = photo.fileDataRepresentation() {
+            var imageData: Data?
+            if (_args?.centerCropAspectRatio != nil && _args?.centerCropWidthPercent != nil) {
+                let croppedImage = cropPhoto(
+                    photo: photo,
+                    centerCropAspectRatio: _args!.centerCropAspectRatio!,
+                    centerCropWidthPercent: _args!.centerCropWidthPercent!
+                )
+                imageData = croppedImage?.jpegData(compressionQuality: 80)
+            } else {
+                imageData = photo.fileDataRepresentation()
+            }
+            
+            if let imageData = imageData {
                 let resultData = FlutterStandardTypedData(bytes: imageData)
                 _pictureBytesChannel.invokeMethod("result", arguments: resultData)
             } else {
@@ -305,6 +322,35 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
     
     func photoOutput(_: AVCapturePhotoOutput, didFinishCaptureFor: AVCaptureResolvedPhotoSettings, error: Error?) {
         _onComplete()
+    }
+    
+    private func cropPhoto(
+        photo: AVCapturePhoto,
+        centerCropAspectRatio: Double,
+        centerCropWidthPercent: Double
+    ) -> UIImage? {
+        let cgImage = photo.cgImageRepresentation()!.takeUnretainedValue()
+        let orientation = photo.metadata[kCGImagePropertyOrientation as String] as! UInt32
+        let imageOrientation = CGImagePropertyOrientation(rawValue: orientation)!
+
+        let src = bakeOrientation(
+            imageRef: cgImage,
+            orienation: imageOrientation
+        )
+
+        let w = Double(src.width) * centerCropWidthPercent
+        let h = w / centerCropAspectRatio
+        
+        let srcX = Double(src.width) / 2.0 - w / 2.0
+        let srcY = Double(src.height) / 2.0 - h / 2.0
+        
+        let cropRect = CGRect(x: srcX, y: srcY, width: w, height: h)
+
+        if let croppedCGImage = src.cropping(to: cropRect) {
+            return UIImage(cgImage: croppedCGImage, scale: 1.0, orientation: .up)
+        }
+        
+        return nil
     }
 }
 
@@ -317,4 +363,88 @@ private class UIPreviewView: UIView {
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
         return layer as! AVCaptureVideoPreviewLayer
     }
+}
+
+private func bakeOrientation(imageRef: CGImage, orienation: CGImagePropertyOrientation) -> CGImage {
+    let originalWidth = imageRef.width
+    let originalHeight = imageRef.height
+    let bitsPerComponent = imageRef.bitsPerComponent
+    let bytesPerRow = imageRef.bytesPerRow
+
+    let bitmapInfo = imageRef.bitmapInfo
+
+    guard let colorSpace = imageRef.colorSpace else {
+        fatalError()
+    }
+
+    var degreesToRotate: Double
+    var swapWidthHeight: Bool
+    var mirrored: Bool
+    switch orienation {
+    case .up:
+        degreesToRotate = 0.0
+        swapWidthHeight = false
+        mirrored = false
+        break
+    case .upMirrored:
+        degreesToRotate = 0.0
+        swapWidthHeight = false
+        mirrored = true
+        break
+    case .right:
+        degreesToRotate = -90.0
+        swapWidthHeight = true
+        mirrored = false
+        break
+    case .rightMirrored:
+        degreesToRotate = -90.0
+        swapWidthHeight = true
+        mirrored = true
+        break
+    case .down:
+        degreesToRotate = 180.0
+        swapWidthHeight = false
+        mirrored = false
+        break
+    case .downMirrored:
+        degreesToRotate = 180.0
+        swapWidthHeight = false
+        mirrored = true
+        break
+    case .left:
+        degreesToRotate = 90.0
+        swapWidthHeight = true
+        mirrored = false
+        break
+    case .leftMirrored:
+        degreesToRotate = 90.0
+        swapWidthHeight = true
+        mirrored = true
+        break
+    }
+    let radians = degreesToRotate * Double.pi / 180.0
+
+    var width: Int
+    var height: Int
+    if swapWidthHeight {
+        width = originalHeight
+        height = originalWidth
+    } else {
+        width = originalWidth
+        height = originalHeight
+    }
+
+    let contextRef = CGContext(data: nil, width: width, height: height, bitsPerComponent: bitsPerComponent, bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: bitmapInfo.rawValue)!
+    contextRef.translateBy(x: CGFloat(width) / 2.0, y: CGFloat(height) / 2.0)
+    if mirrored {
+        contextRef.scaleBy(x: -1.0, y: 1.0)
+    }
+    contextRef.rotate(by: CGFloat(radians))
+    if swapWidthHeight {
+        contextRef.translateBy(x: -CGFloat(height) / 2.0, y: -CGFloat(width) / 2.0)
+    } else {
+        contextRef.translateBy(x: -CGFloat(width) / 2.0, y: -CGFloat(height) / 2.0)
+    }
+    contextRef.draw(imageRef, in: CGRect(x: 0.0, y: 0.0, width: CGFloat(originalWidth), height: CGFloat(originalHeight)))
+    return contextRef.makeImage()!
 }
