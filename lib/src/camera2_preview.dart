@@ -64,6 +64,8 @@ class CameraPreviewController {
   /// photos are returned in the same quality they were shot.
   /// Default: 80.
   ///
+  /// [shutterSound] - whether to play shutter sound. Default: true.
+  ///
   /// [centerCropAspectRatio] - aspect ratio of rect cropped in the middle.
   /// Optional. Must not be null if [centerCropWidthPercent] is not null.
   ///
@@ -74,6 +76,7 @@ class CameraPreviewController {
     bool force = false,
     FlashType flash = FlashType.auto,
     int croppedJpegQuality = 80,
+    bool shutterSound = true,
     double centerCropAspectRatio,
     double centerCropWidthPercent,
   }) async {
@@ -81,6 +84,7 @@ class CameraPreviewController {
     assert(force != null);
     assert(flash != null);
     assert(croppedJpegQuality > 0 && croppedJpegQuality <= 100);
+    assert(shutterSound != null);
     assert(centerCropAspectRatio != null && centerCropWidthPercent != null ||
         centerCropAspectRatio == null && centerCropWidthPercent == null);
     assert(centerCropWidthPercent == null ||
@@ -101,6 +105,7 @@ class CameraPreviewController {
         'freezePreview': freezePreview,
         'flash': flash.asString(),
         'jpegQuality': croppedJpegQuality,
+        'shutterSound': shutterSound,
         if (centerCropAspectRatio != null)
           'centerCropAspectRatio': centerCropAspectRatio,
         if (centerCropWidthPercent != null)

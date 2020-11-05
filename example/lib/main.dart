@@ -221,9 +221,7 @@ class _PreviewScreenState extends State<PreviewScreen> {
             future: widget.photoBytes,
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
-                return Container(
-                  color: Colors.yellow,
-                );
+                return Container();
               }
               return Column(
                 children: [

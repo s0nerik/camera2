@@ -250,7 +250,8 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
                 centerCropAspectRatio: args["centerCropAspectRatio"] as? Double,
                 centerCropWidthPercent: args["centerCropWidthPercent"] as? Double,
                 flash: args["flash"] as! String,
-                jpegQuality: args["jpegQuality"] as! Int
+                jpegQuality: args["jpegQuality"] as! Int,
+                shutterSound: args["shutterSound"] as! Bool
             )
             
             let photoSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
@@ -283,16 +284,17 @@ private struct PhotoCaptureArgs {
     let centerCropWidthPercent: Double?
     let flash: String
     let jpegQuality: Int
+    let shutterSound: Bool
 }
 
 @available(iOS 11.0, *)
 private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
     private let _result: FlutterResult
     private let _pictureBytesChannel: FlutterMethodChannel
-    private let _args: PhotoCaptureArgs?
+    private let _args: PhotoCaptureArgs
     private let _onComplete: () -> Void
 
-    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel, args: PhotoCaptureArgs?, onComplete: @escaping () -> Void) {
+    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel, args: PhotoCaptureArgs, onComplete: @escaping () -> Void) {
         _result = result
         _pictureBytesChannel = pictureBytesChannel
         _args = args
@@ -305,6 +307,10 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
     }
     
     func photoOutput(_ output: AVCapturePhotoOutput, willCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
+        if (!_args.shutterSound) {
+            // dispose system shutter sound
+            AudioServicesDisposeSystemSoundID(1108)
+        }
         _result(nil)
     }
     
@@ -313,13 +319,13 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
             _pictureBytesChannel.invokeMethod("error", arguments: error.localizedDescription)
         } else {
             var imageData: Data?
-            if (_args?.centerCropAspectRatio != nil && _args?.centerCropWidthPercent != nil) {
+            if (_args.centerCropAspectRatio != nil && _args.centerCropWidthPercent != nil) {
                 let croppedImage = cropPhoto(
                     photo: photo,
-                    centerCropAspectRatio: _args!.centerCropAspectRatio!,
-                    centerCropWidthPercent: _args!.centerCropWidthPercent!
+                    centerCropAspectRatio: _args.centerCropAspectRatio!,
+                    centerCropWidthPercent: _args.centerCropWidthPercent!
                 )
-                imageData = croppedImage?.jpegData(compressionQuality: CGFloat(_args!.jpegQuality))
+                imageData = croppedImage?.jpegData(compressionQuality: CGFloat(_args.jpegQuality))
             } else {
                 imageData = photo.fileDataRepresentation()
             }

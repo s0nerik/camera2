@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.*
 import android.graphics.drawable.BitmapDrawable
+import android.media.MediaActionSound
 import android.os.Handler
 import android.os.Looper
 import android.util.Size
@@ -257,6 +258,9 @@ private class CameraPreviewView(
                 val pictureBytesChannel = MethodChannel(messenger, "dev.sonerik.camera2/takePicture/$id")
                 cameraProviderHolder.imageCapture.takePicture(pictureCallbackExecutor, object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureSuccess(image: ImageProxy) {
+                        if (call.argument<Boolean>("shutterSound")!!) {
+                            MediaActionSound().play(MediaActionSound.SHUTTER_CLICK)
+                        }
                         Handler(Looper.getMainLooper()).post {
                             result.success(null)
                         }
