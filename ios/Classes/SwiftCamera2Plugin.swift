@@ -248,11 +248,22 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
             
             let captureArgs = PhotoCaptureArgs(
                 centerCropAspectRatio: args["centerCropAspectRatio"] as? Double,
-                centerCropWidthPercent: args["centerCropWidthPercent"] as? Double
+                centerCropWidthPercent: args["centerCropWidthPercent"] as? Double,
+                flash: args["flash"] as! String,
+                jpegQuality: args["jpegQuality"] as! Int
             )
             
             let photoSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
-            photoSettings.flashMode = .auto
+
+            switch captureArgs.flash {
+            case "off":
+                photoSettings.flashMode = .off
+            case "on":
+                photoSettings.flashMode = .on
+            default:
+                photoSettings.flashMode = .auto
+            }
+
             let delegate = PhotoCaptureDelegate(
                 result: result,
                 pictureBytesChannel: pictureBytesChannel,
@@ -270,6 +281,8 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
 private struct PhotoCaptureArgs {
     let centerCropAspectRatio: Double?
     let centerCropWidthPercent: Double?
+    let flash: String
+    let jpegQuality: Int
 }
 
 @available(iOS 11.0, *)
@@ -306,7 +319,7 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
                     centerCropAspectRatio: _args!.centerCropAspectRatio!,
                     centerCropWidthPercent: _args!.centerCropWidthPercent!
                 )
-                imageData = croppedImage?.jpegData(compressionQuality: 80)
+                imageData = croppedImage?.jpegData(compressionQuality: CGFloat(_args!.jpegQuality))
             } else {
                 imageData = photo.fileDataRepresentation()
             }

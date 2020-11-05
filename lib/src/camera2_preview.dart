@@ -6,6 +6,22 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+enum FlashType { auto, on, off }
+
+extension _FlashTypeStr on FlashType {
+  String asString() {
+    switch (this) {
+      case FlashType.auto:
+        return 'auto';
+      case FlashType.on:
+        return 'on';
+      case FlashType.off:
+        return 'off';
+    }
+    return 'auto';
+  }
+}
+
 @immutable
 class TakePictureResult {
   TakePictureResult._(this.picture);
@@ -42,6 +58,10 @@ class CameraPreviewController {
   /// errors on native side.
   /// Default value is `false`.
   ///
+  /// [flash] - camera flashlight mode. Default: [FlashType.auto].
+  ///
+  /// [jpegQuality] - result JPEG compression quality. Default: 80.
+  ///
   /// [centerCropAspectRatio] - aspect ratio of rect cropped in the middle.
   /// Optional. Must not be null if [centerCropWidthPercent] is not null.
   ///
@@ -50,11 +70,15 @@ class CameraPreviewController {
   Future<TakePictureResult> takePicture({
     bool freezePreview = true,
     bool force = false,
+    FlashType flash = FlashType.auto,
+    int jpegQuality = 80,
     double centerCropAspectRatio,
     double centerCropWidthPercent,
   }) async {
     assert(freezePreview != null);
     assert(force != null);
+    assert(flash != null);
+    assert(jpegQuality > 0 && jpegQuality <= 100);
     assert(centerCropAspectRatio != null && centerCropWidthPercent != null ||
         centerCropAspectRatio == null && centerCropWidthPercent == null);
     assert(centerCropWidthPercent == null ||
@@ -73,6 +97,8 @@ class CameraPreviewController {
       await _channel.invokeMethod<Uint8List>('takePicture', {
         'id': id,
         'freezePreview': freezePreview,
+        'flash': flash.asString(),
+        'jpegQuality': jpegQuality,
         if (centerCropAspectRatio != null)
           'centerCropAspectRatio': centerCropAspectRatio,
         if (centerCropWidthPercent != null)

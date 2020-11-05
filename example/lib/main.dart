@@ -50,7 +50,8 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
-  bool _hasCameraPermission = false;
+  var _hasCameraPermission = false;
+  var _flashType = FlashType.auto;
 
   CameraPreviewController _ctrl;
   bool _tookPicture = false;
@@ -112,6 +113,24 @@ class _CameraScreenState extends State<CameraScreen> {
               child: Text('TEST'),
             ),
           ),
+          Positioned(
+            top: 0,
+            left: 0,
+            child: RaisedButton(
+              onPressed: () {
+                setState(() {
+                  if (_flashType == FlashType.auto) {
+                    _flashType = FlashType.off;
+                  } else if (_flashType == FlashType.off) {
+                    _flashType = FlashType.on;
+                  } else if (_flashType == FlashType.on) {
+                    _flashType = FlashType.auto;
+                  }
+                });
+              },
+              child: Text('$_flashType'),
+            ),
+          ),
           Center(
             child: SizedBox(
               width:
@@ -136,6 +155,8 @@ class _CameraScreenState extends State<CameraScreen> {
     final result = await _ctrl.takePicture(
       centerCropAspectRatio: _centerCropAspectRatio,
       centerCropWidthPercent: _centerCropWidthPercent,
+      flash: _flashType,
+      jpegQuality: 100,
     );
     setState(() => _tookPicture = true);
     if (result != null) {
