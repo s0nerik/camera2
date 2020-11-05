@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:camera2/camera2.dart';
 import 'package:flutter/material.dart';
@@ -145,13 +147,42 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-class PreviewScreen extends StatelessWidget {
+class PreviewScreen extends StatefulWidget {
   const PreviewScreen({
     Key key,
     @required this.photoBytes,
   }) : super(key: key);
 
   final Future<Uint8List> photoBytes;
+
+  @override
+  _PreviewScreenState createState() => _PreviewScreenState();
+}
+
+class _PreviewScreenState extends State<PreviewScreen> {
+  String _resolution = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _getResolution(widget.photoBytes);
+  }
+
+  Future<void> _getResolution(Future<Uint8List> bytesFuture) async {
+    final bytes = await bytesFuture;
+    final image = Image.memory(bytes);
+    final completer = Completer<ui.Image>();
+    image.image.resolve(ImageConfiguration()).addListener(
+      ImageStreamListener((info, bool _) {
+        completer.complete(info.image);
+      }),
+    );
+    final img = await completer.future;
+    _resolution = '${img.width}x${img.height}';
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -165,28 +196,33 @@ class PreviewScreen extends StatelessWidget {
             builder: (context) => CameraScreen(),
           ));
         },
-        child: FutureBuilder(
-            future: photoBytes,
+        child: FutureBuilder<Uint8List>(
+            future: widget.photoBytes,
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
                 return Container(
                   color: Colors.yellow,
                 );
               }
-              return Image(
-                image: MemoryImage(snapshot.data),
-                gaplessPlayback: true,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Center(
-                    child: CircularProgressIndicator(
-                      value: loadingProgress.expectedTotalBytes != null
-                          ? loadingProgress.cumulativeBytesLoaded /
-                              loadingProgress.expectedTotalBytes
-                          : null,
-                    ),
-                  );
-                },
+              return Column(
+                children: [
+                  Text(_resolution),
+                  Image(
+                    image: MemoryImage(snapshot.data),
+                    gaplessPlayback: true,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Center(
+                        child: CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded /
+                                  loadingProgress.expectedTotalBytes
+                              : null,
+                        ),
+                      );
+                    },
+                  ),
+                ],
               );
             }),
       ),
