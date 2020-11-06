@@ -34,27 +34,27 @@ private class CameraProviderHolder {
     private let activePreviews = NSMapTable<NSNumber, CameraPreviewView>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     private let activePreviewSessions = NSMapTable<NSNumber, AVCaptureSession>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     private let activePreviewOutputs = NSMapTable<NSNumber, AVCapturePhotoOutput>(keyOptions: .weakMemory, valueOptions: .weakMemory)
-
+    
     func getPhotoOutput(viewId: Int64) -> AVCapturePhotoOutput? {
         return activePreviewOutputs.object(forKey: NSNumber(value: viewId))
     }
-
+    
     func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView, previewArgs: CameraPreviewArgs?) {
         let session = AVCaptureSession()
         prepareSession(session: session, viewId: viewId, previewArgs: previewArgs)
         previewView.captureSession = session
-
+        
         sessionQueue.async {
             session.startRunning()
         }
-
+        
         activePreviews.setObject(previewView, forKey: NSNumber(value: viewId))
         activePreviewIds.append(viewId)
     }
     
     func onPreviewDisposed(viewId: Int64) {
         let key = NSNumber(value: viewId)
-
+        
         if let idIndex = activePreviewIds.firstIndex(of: viewId) {
             activePreviewIds.remove(at: idIndex)
         }
@@ -65,9 +65,9 @@ private class CameraProviderHolder {
             }
             activePreviewSessions.removeObject(forKey: key)
         }
-
+        
         activePreviewOutputs.removeObject(forKey: key)
-
+        
         activePreviews.removeObject(forKey: key)
     }
     
@@ -83,7 +83,7 @@ private class CameraProviderHolder {
     
     func prepareSession(session: AVCaptureSession, viewId: Int64, previewArgs: CameraPreviewArgs?) {
         session.beginConfiguration()
-
+        
         // Set preferred resolution
         if previewArgs?.preferredPhotoWidth != nil && previewArgs?.preferredPhotoHeight != nil {
             session.sessionPreset = presetFromPreferredResolution(
@@ -93,7 +93,7 @@ private class CameraProviderHolder {
         } else {
             session.sessionPreset = .photo
         }
-
+        
         // Init camera input device
         let videoDevice = AVCaptureDevice.devices(for: AVMediaType.video).first { (device) -> Bool in
             device.position == AVCaptureDevice.Position.back
@@ -154,11 +154,11 @@ private class CameraPreviewFactory: NSObject, FlutterPlatformViewFactory {
         self.cameraProviderHolder = cameraProviderHolder
         super.init()
     }
-
+    
     func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
         return FlutterStandardMessageCodec.sharedInstance()
     }
-
+    
     func create(
         withFrame frame: CGRect,
         viewIdentifier viewId: Int64,
@@ -211,7 +211,7 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
     ) {
         _view = UIPreviewView()
         _view.videoPreviewLayer.videoGravity = .resizeAspectFill
-
+        
         _viewId = viewId
         _onDispose = onDispose
         _cameraProviderHolder = cameraProviderHolder
@@ -255,7 +255,7 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
             )
             
             let photoSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
-
+            
             switch captureArgs.flash {
             case "off":
                 photoSettings.flashMode = .off
@@ -264,11 +264,14 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
             default:
                 photoSettings.flashMode = .auto
             }
-
+            
+            let previewAspectRatio = Double(_view.bounds.size.width) / Double(_view.bounds.size.height)
+            
             let delegate = PhotoCaptureDelegate(
                 result: result,
                 pictureBytesChannel: pictureBytesChannel,
                 args: captureArgs,
+                previewAspectRatio: previewAspectRatio,
                 onComplete: { [weak self] in self?.inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = nil }
             )
             inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = delegate
@@ -292,12 +295,14 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
     private let _result: FlutterResult
     private let _pictureBytesChannel: FlutterMethodChannel
     private let _args: PhotoCaptureArgs
+    private let _previewAspectRatio: Double
     private let _onComplete: () -> Void
-
-    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel, args: PhotoCaptureArgs, onComplete: @escaping () -> Void) {
+    
+    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel, args: PhotoCaptureArgs, previewAspectRatio: Double, onComplete: @escaping () -> Void) {
         _result = result
         _pictureBytesChannel = pictureBytesChannel
         _args = args
+        _previewAspectRatio = previewAspectRatio
         _onComplete = onComplete
         super.init()
     }
@@ -322,6 +327,7 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
             if (_args.centerCropAspectRatio != nil && _args.centerCropWidthPercent != nil) {
                 let croppedImage = cropPhoto(
                     photo: photo,
+                    previewAspectRatio: _previewAspectRatio,
                     centerCropAspectRatio: _args.centerCropAspectRatio!,
                     centerCropWidthPercent: _args.centerCropWidthPercent!
                 )
@@ -345,26 +351,33 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
     
     private func cropPhoto(
         photo: AVCapturePhoto,
+        previewAspectRatio: Double,
         centerCropAspectRatio: Double,
         centerCropWidthPercent: Double
     ) -> UIImage? {
         let cgImage = photo.cgImageRepresentation()!.takeUnretainedValue()
         let orientation = photo.metadata[kCGImagePropertyOrientation as String] as! UInt32
         let imageOrientation = CGImagePropertyOrientation(rawValue: orientation)!
-
+        
         let src = bakeOrientation(
             imageRef: cgImage,
             orienation: imageOrientation
         )
-
-        let w = Double(src.width) * centerCropWidthPercent
+        
+        let srcAspectRatio = Double(src.width) / Double(src.height)
+        
+        let previewSrcRatio = previewAspectRatio / srcAspectRatio
+        let adjustedSrcWidth = Double(src.width) * previewSrcRatio
+        let extraWidth = max(0, Double(src.width) - adjustedSrcWidth)
+        
+        let w = (Double(src.width) - extraWidth) * centerCropWidthPercent
         let h = w / centerCropAspectRatio
         
         let srcX = Double(src.width) / 2.0 - w / 2.0
         let srcY = Double(src.height) / 2.0 - h / 2.0
         
         let cropRect = CGRect(x: srcX, y: srcY, width: w, height: h)
-
+        
         if let croppedCGImage = src.cropping(to: cropRect) {
             return UIImage(cgImage: croppedCGImage, scale: 1.0, orientation: .up)
         }
@@ -389,13 +402,13 @@ private func bakeOrientation(imageRef: CGImage, orienation: CGImagePropertyOrien
     let originalHeight = imageRef.height
     let bitsPerComponent = imageRef.bitsPerComponent
     let bytesPerRow = imageRef.bytesPerRow
-
+    
     let bitmapInfo = imageRef.bitmapInfo
-
+    
     guard let colorSpace = imageRef.colorSpace else {
         fatalError()
     }
-
+    
     var degreesToRotate: Double
     var swapWidthHeight: Bool
     var mirrored: Bool
@@ -442,7 +455,7 @@ private func bakeOrientation(imageRef: CGImage, orienation: CGImagePropertyOrien
         break
     }
     let radians = degreesToRotate * Double.pi / 180.0
-
+    
     var width: Int
     var height: Int
     if swapWidthHeight {
@@ -452,7 +465,7 @@ private func bakeOrientation(imageRef: CGImage, orienation: CGImagePropertyOrien
         width = originalWidth
         height = originalHeight
     }
-
+    
     let contextRef = CGContext(data: nil, width: width, height: height, bitsPerComponent: bitsPerComponent, bytesPerRow: bytesPerRow, space: colorSpace, bitmapInfo: bitmapInfo.rawValue)!
     contextRef.translateBy(x: CGFloat(width) / 2.0, y: CGFloat(height) / 2.0)
     if mirrored {

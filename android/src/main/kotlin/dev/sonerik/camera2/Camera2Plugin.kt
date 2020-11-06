@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.*
 import android.graphics.drawable.BitmapDrawable
 import android.media.MediaActionSound
+import android.media.ThumbnailUtils
 import android.os.Handler
 import android.os.Looper
 import android.util.Size
@@ -32,6 +33,7 @@ import io.flutter.plugin.platform.PlatformViewFactory
 import java.io.*
 import java.util.concurrent.Executor
 import java.util.concurrent.ScheduledThreadPoolExecutor
+import kotlin.math.max
 
 /** Camera2Plugin */
 class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
@@ -268,6 +270,7 @@ private class CameraPreviewView(
                             val resultBytes = if (centerCropAspectRatio != null && centerCropWidthPercent != null) {
                                 readImageCropped(
                                         image,
+                                        previewAspectRatio = previewView.width.toDouble() / previewView.height.toDouble(),
                                         centerCropAspectRatio = centerCropAspectRatio,
                                         centerCropWidthPercent = centerCropWidthPercent,
                                         quality = call.argument<Int>("jpegQuality")!!
@@ -309,6 +312,7 @@ private class CameraPreviewView(
 
 private fun readImageCropped(
         image: ImageProxy,
+        previewAspectRatio: Double,
         centerCropAspectRatio: Double,
         centerCropWidthPercent: Double,
         quality: Int
@@ -323,12 +327,21 @@ private fun readImageCropped(
         resultBytes = it.toByteArray()
     }
     val bitmap = BitmapFactory.decodeByteArray(resultBytes, 0, resultBytes.size)
-    val rotatedBitmap = bakeExifOrientation(bitmap, image.imageInfo.rotationDegrees)
+    val src = bakeExifOrientation(bitmap, image.imageInfo.rotationDegrees)
 
-    val width = rotatedBitmap.width * centerCropWidthPercent
-    val height = width / centerCropAspectRatio
+    val srcAspectRatio = src.width.toDouble() / src.height.toDouble()
 
-    val croppedBitmap = centerCrop(rotatedBitmap, width.toInt(), height.toInt())
+    val previewSrcRatio = previewAspectRatio / srcAspectRatio
+    val adjustedSrcWidth = src.width * previewSrcRatio
+    val extraWidth = max(0.0, src.width - adjustedSrcWidth)
+
+    val w = (src.width - extraWidth) * centerCropWidthPercent
+    val h = w / centerCropAspectRatio
+
+    val srcX = src.width / 2.0 - w / 2.0
+    val srcY = src.height / 2.0 - h / 2.0
+    val croppedBitmap = Bitmap.createBitmap(src, srcX.toInt(), srcY.toInt(), w.toInt(), h.toInt())
+    src.recycle()
 
     ByteArrayOutputStream().use { stream ->
         croppedBitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
@@ -350,14 +363,6 @@ private fun readImageNonCropped(
         }
         it.toByteArray()
     }
-}
-
-private fun centerCrop(src: Bitmap, w: Int, h: Int): Bitmap {
-    val srcX = src.width / 2 - w / 2
-    val srcY = src.height / 2 - h / 2
-    val result = Bitmap.createBitmap(src, srcX, srcY, w, h)
-    src.recycle()
-    return result
 }
 
 private fun bakeExifOrientation(bitmap: Bitmap, rotationDegrees: Int): Bitmap {
