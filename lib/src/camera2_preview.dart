@@ -24,7 +24,14 @@ extension _FlashTypeStr on FlashType {
 
 @immutable
 class TakePictureResult {
-  TakePictureResult._(this.picture);
+  const TakePictureResult._(this.picture);
+
+  final Future<Uint8List> picture;
+}
+
+@immutable
+class AnalysisPictureResult {
+  const AnalysisPictureResult._(this.picture);
 
   final Future<Uint8List> picture;
 }
@@ -118,12 +125,12 @@ class CameraPreviewController {
         pictureBytesChannel.setMethodCallHandler(null);
         switch (call.method) {
           case 'result':
-            final Uint8List photoBytes = call.arguments;
+            final photoBytes = call.arguments as Uint8List;
             pictureCompleter.complete(photoBytes);
             _takePictureCompleter.complete();
             break;
           case 'error':
-            final String error = call.arguments;
+            final error = call.arguments as String;
             pictureCompleter.completeError(Exception(error));
             _takePictureCompleter.complete();
             break;
@@ -144,11 +151,15 @@ typedef PlatformViewCreatedCallback = void Function(
   CameraPreviewController controller,
 );
 
+typedef ImageCallback = void Function(Uint8List imageBytes);
+
 class Camera2Preview extends StatefulWidget {
   const Camera2Preview({
     Key key,
     this.onPlatformViewCreated,
     this.preferredPhotoSize,
+    this.imageStreamPhotoSize,
+    this.onNewImage,
   }) : super(key: key);
 
   final PlatformViewCreatedCallback onPlatformViewCreated;
@@ -158,6 +169,10 @@ class Camera2Preview extends StatefulWidget {
   /// [CameraPreviewController.centerCropAspectRatio] and
   /// [CameraPreviewController.centerCropWidthPercent] combination.
   final Size preferredPhotoSize;
+
+  final Size imageStreamPhotoSize;
+
+  final ImageCallback onNewImage;
 
   @override
   _Camera2PreviewState createState() => _Camera2PreviewState();
@@ -201,8 +216,7 @@ class _Camera2PreviewState extends State<Camera2Preview> {
       );
     }
 
-    return new Text(
-        '$defaultTargetPlatform is not yet supported by this plugin');
+    return Text('$defaultTargetPlatform is not yet supported by this plugin');
   }
 
   void _onPlatformViewCreated(int id) {

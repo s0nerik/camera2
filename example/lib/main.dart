@@ -3,11 +3,13 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:camera2/camera2.dart';
+import 'package:camera2_example/analysis_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:pedantic/pedantic.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 void main() {
-  runApp(App());
+  runApp(const App());
 }
 
 class App extends StatelessWidget {
@@ -15,7 +17,7 @@ class App extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return const MaterialApp(
       home: StartScreen(),
     );
   }
@@ -30,21 +32,36 @@ class StartScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Test app'),
       ),
-      body: Center(
-        child: RaisedButton(
-          onPressed: () {
-            Navigator.of(context).push(MaterialPageRoute(
-              builder: (context) => CameraScreen(),
-            ));
-          },
-          child: Text('Open camera'),
-        ),
+      body: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          RaisedButton(
+            onPressed: () {
+              Navigator.of(context).push<void>(MaterialPageRoute(
+                builder: (context) => const CameraScreen(),
+              ));
+            },
+            child: const Text('Photo'),
+          ),
+          RaisedButton(
+            onPressed: () {
+              Navigator.of(context).push<void>(MaterialPageRoute(
+                builder: (context) => const AnalysisScreen(),
+              ));
+            },
+            child: const Text('Image analysis'),
+          ),
+        ],
       ),
     );
   }
 }
 
 class CameraScreen extends StatefulWidget {
+  const CameraScreen({
+    Key key,
+  }) : super(key: key);
+
   @override
   _CameraScreenState createState() => _CameraScreenState();
 }
@@ -83,7 +100,7 @@ class _CameraScreenState extends State<CameraScreen> {
         children: [
           if (_hasCameraPermission)
             Camera2Preview(
-              preferredPhotoSize: Size(720, 1280),
+              preferredPhotoSize: const Size(720, 1280),
               onPlatformViewCreated: (ctrl) => _ctrl = ctrl,
             ),
           Positioned(
@@ -101,7 +118,7 @@ class _CameraScreenState extends State<CameraScreen> {
             right: 0,
             child: RaisedButton(
               onPressed: _takePicture,
-              child: Text('PHOTO'),
+              child: const Text('PHOTO'),
             ),
           ),
           Positioned(
@@ -110,7 +127,7 @@ class _CameraScreenState extends State<CameraScreen> {
             right: 0,
             child: RaisedButton(
               onPressed: () {},
-              child: Text('TEST'),
+              child: const Text('TEST'),
             ),
           ),
           Positioned(
@@ -160,9 +177,11 @@ class _CameraScreenState extends State<CameraScreen> {
     );
     setState(() => _tookPicture = true);
     if (result != null) {
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (context) => PreviewScreen(photoBytes: result.picture),
-      ));
+      unawaited(
+        Navigator.of(context).push<void>(MaterialPageRoute(
+          builder: (context) => PreviewScreen(photoBytes: result.picture),
+        )),
+      );
     }
     setState(() => _tookPicture = false);
   }
@@ -193,8 +212,8 @@ class _PreviewScreenState extends State<PreviewScreen> {
     final bytes = await bytesFuture;
     final image = Image.memory(bytes);
     final completer = Completer<ui.Image>();
-    image.image.resolve(ImageConfiguration()).addListener(
-      ImageStreamListener((info, bool _) {
+    image.image.resolve(const ImageConfiguration()).addListener(
+      ImageStreamListener((info, _) {
         completer.complete(info.image);
       }),
     );
@@ -213,8 +232,8 @@ class _PreviewScreenState extends State<PreviewScreen> {
       ),
       body: GestureDetector(
         onTap: () {
-          Navigator.of(context).push(MaterialPageRoute(
-            builder: (context) => CameraScreen(),
+          Navigator.of(context).push<void>(MaterialPageRoute(
+            builder: (context) => const CameraScreen(),
           ));
         },
         child: FutureBuilder<Uint8List>(
