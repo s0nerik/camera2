@@ -104,11 +104,15 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     }
 }
 
+private data class AnalysisOptions(
+        val imageSize: Size,
+        val colorOrder: ColorOrder,
+        val normalization: Normalization
+)
+
 private data class CameraPreviewArgs(
         val preferredPhotoSize: Size?,
-        val analysisImageSize: Size?,
-        val analysisImageColorOrder: ColorOrder,
-        val analysisImageNormalization: Normalization
+        val analysisOptions: AnalysisOptions?
 ) {
     companion object {
         fun fromMap(args: Map<*, *>): CameraPreviewArgs {
@@ -119,32 +123,31 @@ private data class CameraPreviewArgs(
             else
                 null
 
-            val analysisImageWidth = args["analysisImageWidth"] as? Int
-            val analysisImageHeight = args["analysisImageHeight"] as? Int
-            val analysisImageSize = if (analysisImageWidth != null && analysisImageHeight != null)
-                Size(analysisImageWidth, analysisImageHeight)
-            else
-                null
-
-            val analysisImageColorOrder = when (args["analysisImageColorOrder"] as? String) {
-                "rgb" -> ColorOrder.RGB
-                "bgr" -> ColorOrder.BGR
-                else -> ColorOrder.RGB
-            }
-
-            val analysisImageNormalization = when (args["analysisImageNormalization"] as? String) {
-                "ubyte" -> Normalization.UBYTE
-                "byte" -> Normalization.BYTE
-                "ufloat" -> Normalization.UFLOAT
-                "float" -> Normalization.FLOAT
-                else -> Normalization.UBYTE
+            val analysisOptions = (args["analysisOptions"] as? Map<*, *>)?.let { opts ->
+                AnalysisOptions(
+                        imageSize = Size(opts["imageWidth"] as Int, opts["imageHeight"] as Int),
+                        colorOrder = when (opts["colorOrder"] as String) {
+                            "rgb" -> ColorOrder.RGB
+                            "rbg" -> ColorOrder.RBG
+                            "gbr" -> ColorOrder.GBR
+                            "grb" -> ColorOrder.GRB
+                            "brg" -> ColorOrder.BRG
+                            "bgr" -> ColorOrder.BGR
+                            else -> error("'colorOrder' value must be one of ['rgb', 'bgr']")
+                        },
+                        normalization = when (opts["normalization"] as? String) {
+                            "ubyte" -> Normalization.UBYTE
+                            "byte" -> Normalization.BYTE
+                            "ufloat" -> Normalization.UFLOAT
+                            "float" -> Normalization.FLOAT
+                            else -> error("'normalization' value must be one of ['ubyte', 'byte', 'ufloat', 'float']")
+                        }
+                )
             }
 
             return CameraPreviewArgs(
                     preferredPhotoSize = preferredPhotoSize,
-                    analysisImageSize = analysisImageSize,
-                    analysisImageColorOrder = analysisImageColorOrder,
-                    analysisImageNormalization = analysisImageNormalization
+                    analysisOptions = analysisOptions
             )
         }
     }
@@ -212,16 +215,16 @@ private class CameraProviderHolder(
     }
 
     private fun initImageAnalysis(args: CameraPreviewArgs) {
-        args.analysisImageSize?.let { size ->
+        args.analysisOptions?.let { opts ->
             _analysisHelper = ImageAnalysisHelper(
-                    targetSize = size,
+                    targetSize = opts.imageSize,
                     context = context,
-                    colorOrder = args.analysisImageColorOrder,
-                    normalization = args.analysisImageNormalization
+                    colorOrder = opts.colorOrder,
+                    normalization = opts.normalization
             )
 
             _imageAnalysis = ImageAnalysis.Builder()
-                    .setTargetResolution(size)
+                    .setTargetResolution(opts.imageSize)
                     .build()
             _imageAnalysis!!.setAnalyzer(analysisBufferExecutor, ImageAnalysis.Analyzer { image ->
                 image.use { _analysisHelper?.getAnalysisFrame(it) }

@@ -7,7 +7,7 @@ import androidx.camera.core.ImageProxy
 import java.nio.ByteBuffer
 
 enum class ColorOrder {
-    RGB, BGR
+    RGB, RBG, GRB, GBR, BRG, BGR,
 }
 
 enum class Normalization {
@@ -67,6 +67,26 @@ class ImageAnalysisHelper(
                         colors[0] = Color.red(px)
                         colors[1] = Color.green(px)
                         colors[2] = Color.blue(px)
+                    }
+                    ColorOrder.RBG -> {
+                        colors[0] = Color.red(px)
+                        colors[1] = Color.blue(px)
+                        colors[2] = Color.green(px)
+                    }
+                    ColorOrder.GRB -> {
+                        colors[0] = Color.green(px)
+                        colors[1] = Color.red(px)
+                        colors[2] = Color.blue(px)
+                    }
+                    ColorOrder.GBR -> {
+                        colors[0] = Color.green(px)
+                        colors[1] = Color.blue(px)
+                        colors[2] = Color.red(px)
+                    }
+                    ColorOrder.BRG -> {
+                        colors[0] = Color.blue(px)
+                        colors[1] = Color.red(px)
+                        colors[2] = Color.green(px)
                     }
                     ColorOrder.BGR -> {
                         colors[0] = Color.blue(px)

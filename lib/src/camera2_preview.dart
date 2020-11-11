@@ -163,12 +163,96 @@ typedef PlatformViewCreatedCallback = void Function(
 
 typedef ImageCallback = void Function(Uint8List imageBytes);
 
+@immutable
+class Camera2AnalysisOptions {
+  const Camera2AnalysisOptions({
+    this.imageSize = const Size(224, 224),
+    this.colorOrder = ColorOrder.rgb,
+    this.normalization = Normalization.byte,
+  })  : assert(imageSize != null),
+        assert(colorOrder != null),
+        assert(normalization != null);
+
+  /// Size of the images acquired with
+  /// [CameraPreviewController.requestImageForAnalysis].
+  final Size imageSize;
+
+  /// Order of colors in the byte array acquired with
+  /// [CameraPreviewController.requestImageForAnalysis].
+  final ColorOrder colorOrder;
+
+  /// Normalization type for colors in the byte array acquired with
+  /// [CameraPreviewController.requestImageForAnalysis].
+  final Normalization normalization;
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'imageWidth': imageSize.width.toInt(),
+      'imageHeight': imageSize.height.toInt(),
+      'colorOrder': colorOrder.asString(),
+      'normalization': normalization.asString(),
+    };
+  }
+}
+
+enum ColorOrder { rgb, rbg, grb, gbr, brg, bgr }
+
+extension _ColorOrderStr on ColorOrder {
+  String asString() {
+    switch (this) {
+      case ColorOrder.rgb:
+        return 'rgb';
+      case ColorOrder.rbg:
+        return 'rbg';
+      case ColorOrder.grb:
+        return 'grb';
+      case ColorOrder.gbr:
+        return 'gbr';
+      case ColorOrder.brg:
+        return 'brg';
+      case ColorOrder.bgr:
+        return 'bgr';
+    }
+    return 'rgb';
+  }
+}
+
+enum Normalization {
+  /// Range: [0, 255]
+  ubyte,
+
+  /// Range: [-127, 127]
+  byte,
+
+  /// Range: [0.0, 1.0]
+  ufloat,
+
+  /// Range: [-1.0, 1.0]
+  float,
+}
+
+extension _NormalizationStr on Normalization {
+  String asString() {
+    switch (this) {
+      case Normalization.ubyte:
+        return 'ubyte';
+      case Normalization.byte:
+        return 'byte';
+      case Normalization.ufloat:
+        return 'ufloat';
+      case Normalization.float:
+        return 'float';
+    }
+    return 'byte';
+  }
+}
+
 class Camera2Preview extends StatefulWidget {
   const Camera2Preview({
     Key key,
     this.onPlatformViewCreated,
     this.preferredPhotoSize,
-    this.analysisImageSize,
+    this.analysisOptions,
   }) : super(key: key);
 
   final PlatformViewCreatedCallback onPlatformViewCreated;
@@ -179,9 +263,7 @@ class Camera2Preview extends StatefulWidget {
   /// `centerCropWidthPercent` combination.
   final Size preferredPhotoSize;
 
-  /// Size of the images acquired with
-  /// [CameraPreviewController.requestImageForAnalysis].
-  final Size analysisImageSize;
+  final Camera2AnalysisOptions analysisOptions;
 
   @override
   _Camera2PreviewState createState() => _Camera2PreviewState();
@@ -207,10 +289,8 @@ class _Camera2PreviewState extends State<Camera2Preview> {
         'preferredPhotoWidth': widget.preferredPhotoSize.width.toInt(),
       if (widget.preferredPhotoSize != null)
         'preferredPhotoHeight': widget.preferredPhotoSize.height.toInt(),
-      if (widget.analysisImageSize != null)
-        'analysisImageWidth': widget.analysisImageSize.width.toInt(),
-      if (widget.analysisImageSize != null)
-        'analysisImageHeight': widget.analysisImageSize.height.toInt(),
+      if (widget.analysisOptions != null)
+        'analysisOptions': widget.analysisOptions.toMap(),
     };
 
     if (defaultTargetPlatform == TargetPlatform.android) {
