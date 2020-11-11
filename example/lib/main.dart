@@ -34,6 +34,7 @@ class StartScreen extends StatelessWidget {
       ),
       body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           RaisedButton(
             onPressed: () {
