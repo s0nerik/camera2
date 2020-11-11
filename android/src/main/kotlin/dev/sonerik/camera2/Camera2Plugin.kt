@@ -3,10 +3,11 @@ package dev.sonerik.camera2
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.*
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.graphics.drawable.BitmapDrawable
 import android.media.MediaActionSound
-import android.media.ThumbnailUtils
 import android.os.Handler
 import android.os.Looper
 import android.util.Size
@@ -30,9 +31,9 @@ import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
-import java.io.*
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executor
-import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.Executors
 import kotlin.math.max
 
 /** Camera2Plugin */
@@ -42,9 +43,10 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var flutterPluginBinding: FlutterPlugin.FlutterPluginBinding
 
     private lateinit var mainExecutor: Executor
-    private lateinit var pictureCallbackExecutor: Executor
+    private val pictureCallbackExecutor = Executors.newSingleThreadExecutor()
+    private val analysisBufferExecutor = Executors.newSingleThreadExecutor()
 
-    private val cameraProviderHolder = CameraProviderHolder()
+    private lateinit var cameraProviderHolder: CameraProviderHolder
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         this.flutterPluginBinding = flutterPluginBinding
@@ -52,13 +54,14 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             setMethodCallHandler(this@Camera2Plugin)
         }
         mainExecutor = ContextCompat.getMainExecutor(flutterPluginBinding.applicationContext)
-        pictureCallbackExecutor = ScheduledThreadPoolExecutor(1)
+        cameraProviderHolder = CameraProviderHolder(flutterPluginBinding.applicationContext, analysisBufferExecutor)
         flutterPluginBinding.platformViewRegistry
                 .registerViewFactory(
                         "cameraPreview",
                         CameraPreviewFactory(
                                 messenger = flutterPluginBinding.binaryMessenger,
                                 pictureCallbackExecutor = pictureCallbackExecutor,
+                                analysisBufferExecutor = analysisBufferExecutor,
                                 cameraProviderHolder = cameraProviderHolder
                         )
                 )
@@ -101,25 +104,79 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     }
 }
 
+private data class CameraPreviewArgs(
+        val preferredPhotoSize: Size?,
+        val analysisImageSize: Size?,
+        val analysisImageColorOrder: ColorOrder,
+        val analysisImageNormalization: Normalization
+) {
+    companion object {
+        fun fromMap(args: Map<*, *>): CameraPreviewArgs {
+            val preferredPhotoWidth = args["preferredPhotoWidth"] as? Int
+            val preferredPhotoHeight = args["preferredPhotoHeight"] as? Int
+            val preferredPhotoSize = if (preferredPhotoWidth != null && preferredPhotoHeight != null)
+                Size(preferredPhotoWidth, preferredPhotoHeight)
+            else
+                null
+
+            val analysisImageWidth = args["analysisImageWidth"] as? Int
+            val analysisImageHeight = args["analysisImageHeight"] as? Int
+            val analysisImageSize = if (analysisImageWidth != null && analysisImageHeight != null)
+                Size(analysisImageWidth, analysisImageHeight)
+            else
+                null
+
+            val analysisImageColorOrder = when (args["analysisImageColorOrder"] as? String) {
+                "rgb" -> ColorOrder.RGB
+                "bgr" -> ColorOrder.BGR
+                else -> ColorOrder.RGB
+            }
+
+            val analysisImageNormalization = when (args["analysisImageNormalization"] as? String) {
+                "ubyte" -> Normalization.UBYTE
+                "byte" -> Normalization.BYTE
+                "ufloat" -> Normalization.UFLOAT
+                "float" -> Normalization.FLOAT
+                else -> Normalization.UBYTE
+            }
+
+            return CameraPreviewArgs(
+                    preferredPhotoSize = preferredPhotoSize,
+                    analysisImageSize = analysisImageSize,
+                    analysisImageColorOrder = analysisImageColorOrder,
+                    analysisImageNormalization = analysisImageNormalization
+            )
+        }
+    }
+}
+
 private class CameraPreviewFactory(
         private val messenger: BinaryMessenger,
         private val pictureCallbackExecutor: Executor,
+        private val analysisBufferExecutor: Executor,
         private val cameraProviderHolder: CameraProviderHolder
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
+        val previewArgs = CameraPreviewArgs.fromMap(args as Map<*, *>)
+
         val view = CameraPreviewView(
                 id = viewId,
+                args = previewArgs,
                 context = context,
                 messenger = messenger,
                 pictureCallbackExecutor = pictureCallbackExecutor,
+                analysisBufferExecutor = analysisBufferExecutor,
                 cameraProviderHolder = cameraProviderHolder
         )
-        cameraProviderHolder.onPreviewCreated(context, viewId, view, args)
+        cameraProviderHolder.onPreviewCreated(context, viewId, view, previewArgs)
         return view
     }
 }
 
-private class CameraProviderHolder {
+private class CameraProviderHolder(
+        private val context: Context,
+        private val analysisBufferExecutor: Executor
+) {
     var lifecycleOwner: LifecycleOwner? = null
 
     private var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>? = null
@@ -131,8 +188,9 @@ private class CameraProviderHolder {
     val imagePreview = Preview.Builder()
             .build()
 
-    val imageAnalysis = ImageAnalysis.Builder()
-            .build()
+    private var _imageAnalysis: ImageAnalysis? = null
+    private var _analysisHelper: ImageAnalysisHelper? = null
+    val analysisFrame get() = _analysisHelper?.lastFrame
 
     private lateinit var _imageCapture: ImageCapture
 
@@ -145,31 +203,47 @@ private class CameraProviderHolder {
 
     private lateinit var mainExecutor: Executor
 
-    private fun initImageCapture(args: Any?) {
-        var preferredPhotoSize: Size? = null
-        (args as? Map<*, *>)?.let {
-            val width = args["preferredPhotoWidth"] as? Int
-            val height = args["preferredPhotoHeight"] as? Int
-            if (width != null && height != null) {
-                preferredPhotoSize = Size(width, height)
-            }
-        }
+    private fun initImageCapture(args: CameraPreviewArgs) {
         val imageCaptureBuilder = ImageCapture.Builder()
                 .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-        preferredPhotoSize?.let { imageCaptureBuilder.setTargetResolution(it) }
+        args.preferredPhotoSize?.let { imageCaptureBuilder.setTargetResolution(it) }
         _imageCapture = imageCaptureBuilder.build()
     }
 
-    fun onPreviewCreated(context: Context, viewId: Int, previewView: CameraPreviewView, args: Any?) {
+    private fun initImageAnalysis(args: CameraPreviewArgs) {
+        args.analysisImageSize?.let { size ->
+            _analysisHelper = ImageAnalysisHelper(
+                    targetSize = size,
+                    context = context,
+                    colorOrder = args.analysisImageColorOrder,
+                    normalization = args.analysisImageNormalization
+            )
+
+            _imageAnalysis = ImageAnalysis.Builder()
+                    .setTargetResolution(size)
+                    .build()
+            _imageAnalysis!!.setAnalyzer(analysisBufferExecutor, ImageAnalysis.Analyzer { image ->
+                image.use { _analysisHelper?.getAnalysisFrame(it) }
+            })
+        }
+    }
+
+    fun onPreviewCreated(context: Context, viewId: Int, previewView: CameraPreviewView, args: CameraPreviewArgs) {
         mainExecutor = ContextCompat.getMainExecutor(context)
         if (cameraProviderFuture == null) {
             cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         }
         if (activePreviews.isEmpty()) {
             initImageCapture(args)
+            initImageAnalysis(args)
             withCameraProvider { cameraProvider ->
-                cameraProvider?.bindToLifecycle(lifecycleOwner!!, cameraSelector, imageCapture, imagePreview)
+                if (_imageAnalysis != null) {
+                    imagePreview.setSurfaceProvider(previewView.surfaceProvider)
+                    cameraProvider?.bindToLifecycle(lifecycleOwner!!, cameraSelector, imagePreview, imageCapture, _imageAnalysis)
+                } else {
+                    cameraProvider?.bindToLifecycle(lifecycleOwner!!, cameraSelector, imageCapture, imagePreview)
+                }
             }
         }
         activePreviews[viewId] = previewView
@@ -181,6 +255,7 @@ private class CameraProviderHolder {
     fun onPreviewDisposed(viewId: Int) {
         activePreviews -= viewId
         if (activePreviews.isEmpty()) {
+            _analysisHelper = null
             withCameraProvider { cameraProvider ->
                 imagePreview.setSurfaceProvider(null)
                 cameraProvider?.unbindAll()
@@ -203,9 +278,11 @@ private class CameraProviderHolder {
 
 private class CameraPreviewView(
         context: Context,
+        args: CameraPreviewArgs,
         private val messenger: BinaryMessenger,
         private val id: Int,
         private val pictureCallbackExecutor: Executor,
+        private val analysisBufferExecutor: Executor,
         private val cameraProviderHolder: CameraProviderHolder
 ) : PlatformView, MethodCallHandler {
     private val previewView = PreviewView(context).apply {
@@ -305,6 +382,8 @@ private class CameraPreviewView(
                     }
                 })
             }
+            "requestImageForAnalysis" -> result.success(cameraProviderHolder.analysisFrame)
+            else -> result.notImplemented()
         }
     }
 
