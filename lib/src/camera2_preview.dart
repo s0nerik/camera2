@@ -5,6 +5,7 @@ import 'package:camera2/camera2.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:pedantic/pedantic.dart';
 
 enum FlashType { auto, on, off }
 
@@ -29,13 +30,6 @@ class TakePictureResult {
   final Future<Uint8List> picture;
 }
 
-@immutable
-class AnalysisPictureResult {
-  const AnalysisPictureResult._(this.picture);
-
-  final Future<Uint8List> picture;
-}
-
 class CameraPreviewController {
   CameraPreviewController._(
     this.viewId,
@@ -46,6 +40,8 @@ class CameraPreviewController {
   final MethodChannel _channel;
 
   Completer<void> _takePictureCompleter = Completer()..complete();
+
+  Completer<Uint8List> _requestImageForAnalysisCompleter;
 
   /// Make a shot.
   ///
@@ -145,6 +141,20 @@ class CameraPreviewController {
       rethrow;
     }
   }
+
+  Future<Uint8List> requestImageForAnalysis() async {
+    if (_requestImageForAnalysisCompleter == null ||
+        _requestImageForAnalysisCompleter.isCompleted) {
+      _requestImageForAnalysisCompleter = Completer();
+      unawaited(
+        _channel.invokeMethod<Uint8List>('requestImageForAnalysis').then(
+              _requestImageForAnalysisCompleter.complete,
+              onError: _requestImageForAnalysisCompleter.completeError,
+            ),
+      );
+    }
+    return _requestImageForAnalysisCompleter.future;
+  }
 }
 
 typedef PlatformViewCreatedCallback = void Function(
@@ -158,21 +168,20 @@ class Camera2Preview extends StatefulWidget {
     Key key,
     this.onPlatformViewCreated,
     this.preferredPhotoSize,
-    this.imageStreamPhotoSize,
-    this.onNewImage,
+    this.analysisImageSize,
   }) : super(key: key);
 
   final PlatformViewCreatedCallback onPlatformViewCreated;
 
   /// Preferred size of the resulting photo. Real photo can have different
   /// dimensions. To crop the resulting photo - use
-  /// [CameraPreviewController.centerCropAspectRatio] and
-  /// [CameraPreviewController.centerCropWidthPercent] combination.
+  /// [CameraPreviewController.takePicture]'s `centerCropAspectRatio` and
+  /// `centerCropWidthPercent` combination.
   final Size preferredPhotoSize;
 
-  final Size imageStreamPhotoSize;
-
-  final ImageCallback onNewImage;
+  /// Size of the images acquired with
+  /// [CameraPreviewController.requestImageForAnalysis].
+  final Size analysisImageSize;
 
   @override
   _Camera2PreviewState createState() => _Camera2PreviewState();
@@ -198,6 +207,10 @@ class _Camera2PreviewState extends State<Camera2Preview> {
         'preferredPhotoWidth': widget.preferredPhotoSize.width.toInt(),
       if (widget.preferredPhotoSize != null)
         'preferredPhotoHeight': widget.preferredPhotoSize.height.toInt(),
+      if (widget.analysisImageSize != null)
+        'analysisImageWidth': widget.analysisImageSize.width.toInt(),
+      if (widget.analysisImageSize != null)
+        'analysisImageHeight': widget.analysisImageSize.height.toInt(),
     };
 
     if (defaultTargetPlatform == TargetPlatform.android) {
