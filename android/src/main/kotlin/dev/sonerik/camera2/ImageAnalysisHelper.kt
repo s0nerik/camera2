@@ -27,7 +27,7 @@ class ImageAnalysisHelper(
 
     private val yuvToRgbConverter = YuvToRgbConverter(context)
 
-    private val outBuffer = ByteBuffer.allocate(targetSize.width * targetSize.height * 3 * 4)
+    private val outBuffer = ByteBuffer.allocate(targetSize.width * targetSize.height * 3)
 
     private var _lastFrame: ByteArray? = null
     val lastFrame: ByteArray?
