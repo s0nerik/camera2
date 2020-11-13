@@ -28,6 +28,9 @@ class ImageAnalysisHelper(
     private val yuvToRgbConverter = YuvToRgbConverter(context)
 
     private val outBuffer = ByteBuffer.allocate(targetSize.width * targetSize.height * 3)
+    private val bitmapBuffer = IntArray(targetSize.width * targetSize.height * 4)
+
+    private val colorsBuffer = IntArray(3) { 0 }
 
     private var _lastFrame: ByteArray? = null
     val lastFrame: ByteArray?
@@ -56,10 +59,12 @@ class ImageAnalysisHelper(
 
     private fun writeAnalyzableBitmapToBuffer(bitmap: Bitmap, buffer: ByteBuffer) {
         buffer.rewind()
-        val colors = IntArray(3) { 0 }
-        for (y in 0 until bitmap.width) {
-            for (x in 0 until bitmap.height) {
-                val px = bitmap.getPixel(x, y)
+        bitmap.getPixels(bitmapBuffer, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val colors = colorsBuffer
+        for (y in 0 until bitmap.height) {
+            for (x in 0 until bitmap.width) {
+                val i = y * bitmap.width + x
+                val px = bitmapBuffer[i]
 
                 // Get channel values from the pixel value.
                 when (colorOrder) {

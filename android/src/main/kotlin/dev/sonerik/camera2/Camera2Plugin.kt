@@ -32,8 +32,7 @@ import io.flutter.plugin.common.StandardMessageCodec
 import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 import java.io.ByteArrayOutputStream
-import java.util.concurrent.Executor
-import java.util.concurrent.Executors
+import java.util.concurrent.*
 import kotlin.math.max
 
 /** Camera2Plugin */
@@ -44,7 +43,6 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     private lateinit var mainExecutor: Executor
     private val pictureCallbackExecutor = Executors.newSingleThreadExecutor()
-    private val analysisBufferExecutor = Executors.newSingleThreadExecutor()
 
     private lateinit var cameraProviderHolder: CameraProviderHolder
 
@@ -54,14 +52,13 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             setMethodCallHandler(this@Camera2Plugin)
         }
         mainExecutor = ContextCompat.getMainExecutor(flutterPluginBinding.applicationContext)
-        cameraProviderHolder = CameraProviderHolder(flutterPluginBinding.applicationContext, analysisBufferExecutor)
+        cameraProviderHolder = CameraProviderHolder(flutterPluginBinding.applicationContext)
         flutterPluginBinding.platformViewRegistry
                 .registerViewFactory(
                         "cameraPreview",
                         CameraPreviewFactory(
                                 messenger = flutterPluginBinding.binaryMessenger,
                                 pictureCallbackExecutor = pictureCallbackExecutor,
-                                analysisBufferExecutor = analysisBufferExecutor,
                                 cameraProviderHolder = cameraProviderHolder
                         )
                 )
@@ -156,7 +153,6 @@ private data class CameraPreviewArgs(
 private class CameraPreviewFactory(
         private val messenger: BinaryMessenger,
         private val pictureCallbackExecutor: Executor,
-        private val analysisBufferExecutor: Executor,
         private val cameraProviderHolder: CameraProviderHolder
 ) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
     override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
@@ -168,7 +164,6 @@ private class CameraPreviewFactory(
                 context = context,
                 messenger = messenger,
                 pictureCallbackExecutor = pictureCallbackExecutor,
-                analysisBufferExecutor = analysisBufferExecutor,
                 cameraProviderHolder = cameraProviderHolder
         )
         cameraProviderHolder.onPreviewCreated(context, viewId, view, previewArgs)
@@ -177,8 +172,7 @@ private class CameraPreviewFactory(
 }
 
 private class CameraProviderHolder(
-        private val context: Context,
-        private val analysisBufferExecutor: Executor
+        private val context: Context
 ) {
     var lifecycleOwner: LifecycleOwner? = null
 
@@ -226,7 +220,8 @@ private class CameraProviderHolder(
             _imageAnalysis = ImageAnalysis.Builder()
                     .setTargetResolution(opts.imageSize)
                     .build()
-            _imageAnalysis!!.setAnalyzer(analysisBufferExecutor, ImageAnalysis.Analyzer { image ->
+
+            _imageAnalysis!!.setAnalyzer(Executors.newSingleThreadExecutor(), ImageAnalysis.Analyzer { image ->
                 image.use { _analysisHelper?.getAnalysisFrame(it) }
             })
         }
@@ -285,7 +280,6 @@ private class CameraPreviewView(
         private val messenger: BinaryMessenger,
         private val id: Int,
         private val pictureCallbackExecutor: Executor,
-        private val analysisBufferExecutor: Executor,
         private val cameraProviderHolder: CameraProviderHolder
 ) : PlatformView, MethodCallHandler {
     private val previewView = PreviewView(context).apply {
