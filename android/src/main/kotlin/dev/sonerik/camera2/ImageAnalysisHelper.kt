@@ -18,7 +18,9 @@ class ImageAnalysisHelper(
         context: Context,
         private val targetSize: Size,
         private val colorOrder: ColorOrder,
-        private val normalization: Normalization
+        private val normalization: Normalization,
+        private val centerCropAspectRatio: Float?,
+        private val centerCropWidthPercent: Float?
 ) {
     private lateinit var analysisBitmap: Bitmap
 
@@ -145,7 +147,34 @@ class ImageAnalysisHelper(
 
     private fun writeScaledRotatedBitmap(source: Bitmap, target: Bitmap) {
         val canvas = Canvas(target)
+
+        var srcRect: Rect? = null
+        if (centerCropWidthPercent != null && centerCropAspectRatio != null) {
+            val adjustedWidth = source.width * centerCropWidthPercent
+            val adjustedHeight = adjustedWidth / centerCropAspectRatio
+            val widthDiff = source.width - adjustedWidth
+            val heightDiff = source.height - adjustedHeight
+
+            val rect = RectF(
+                    widthDiff / 2,
+                    heightDiff / 2,
+                    source.width - widthDiff / 2,
+                    source.height - heightDiff / 2
+            )
+
+            val m = Matrix()
+            m.setRotate(-targetRotationDegrees.toFloat(), source.width.toFloat() / 2, source.height.toFloat() / 2)
+            m.mapRect(rect)
+
+            srcRect = Rect(
+                    rect.left.toInt(),
+                    rect.top.toInt(),
+                    rect.right.toInt(),
+                    rect.bottom.toInt()
+            )
+        }
+
         canvas.rotate(targetRotationDegrees.toFloat(), target.width.toFloat() / 2, target.height.toFloat() / 2)
-        canvas.drawBitmap(source, null, Rect(0, 0, target.width, target.height), null)
+        canvas.drawBitmap(source, srcRect, Rect(0, 0, target.width, target.height), null)
     }
 }

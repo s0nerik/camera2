@@ -169,9 +169,14 @@ class Camera2AnalysisOptions {
     this.imageSize = const Size(224, 224),
     this.colorOrder = ColorOrder.rgb,
     this.normalization = Normalization.byte,
+    this.centerCropAspectRatio,
+    this.centerCropWidthPercent,
   })  : assert(imageSize != null),
         assert(colorOrder != null),
         assert(normalization != null);
+
+  final double centerCropAspectRatio;
+  final double centerCropWidthPercent;
 
   /// Size of the images acquired with
   /// [CameraPreviewController.requestImageForAnalysis].
@@ -191,6 +196,8 @@ class Camera2AnalysisOptions {
       'imageHeight': imageSize.height.toInt(),
       'colorOrder': colorOrder.asString(),
       'normalization': normalization.asString(),
+      'centerCropAspectRatio': centerCropAspectRatio,
+      'centerCropWidthPercent': centerCropWidthPercent,
     };
   }
 }

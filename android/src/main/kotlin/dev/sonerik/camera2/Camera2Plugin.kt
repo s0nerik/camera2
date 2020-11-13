@@ -104,7 +104,9 @@ class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 private data class AnalysisOptions(
         val imageSize: Size,
         val colorOrder: ColorOrder,
-        val normalization: Normalization
+        val normalization: Normalization,
+        val centerCropAspectRatio: Float?,
+        val centerCropWidthPercent: Float?
 )
 
 private data class CameraPreviewArgs(
@@ -138,7 +140,9 @@ private data class CameraPreviewArgs(
                             "ufloat" -> Normalization.UFLOAT
                             "float" -> Normalization.FLOAT
                             else -> error("'normalization' value must be one of ['ubyte', 'byte', 'ufloat', 'float']")
-                        }
+                        },
+                        centerCropAspectRatio = (opts["centerCropAspectRatio"] as? Double)?.toFloat(),
+                        centerCropWidthPercent = (opts["centerCropWidthPercent"] as? Double)?.toFloat()
                 )
             }
 
@@ -214,7 +218,9 @@ private class CameraProviderHolder(
                     targetSize = opts.imageSize,
                     context = context,
                     colorOrder = opts.colorOrder,
-                    normalization = opts.normalization
+                    normalization = opts.normalization,
+                    centerCropAspectRatio = opts.centerCropAspectRatio,
+                    centerCropWidthPercent = opts.centerCropWidthPercent
             )
 
             _imageAnalysis = ImageAnalysis.Builder()
