@@ -20,8 +20,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.graphics.Rect
-import android.media.Image
 import android.renderscript.*
+import androidx.camera.core.ImageProxy
 import java.nio.ByteBuffer
 import kotlin.experimental.inv
 
@@ -48,7 +48,7 @@ class YuvToRgbConverter(context: Context) {
     private lateinit var outputAllocation: Allocation
 
     @Synchronized
-    fun yuvToRgb(image: Image, output: Bitmap) {
+    fun yuvToRgb(image: ImageProxy, output: Bitmap) {
 
         // Ensure that the intermediate output byte buffer is allocated
         if (!::yuvBuffer.isInitialized) {
@@ -79,7 +79,7 @@ class YuvToRgbConverter(context: Context) {
         outputAllocation.copyTo(output)
     }
 
-    private fun Allocation.copyFromPlane(plane: Image.Plane) {
+    private fun Allocation.copyFromPlane(plane: ImageProxy.PlaneProxy) {
         if (plane.buffer.hasArray())
             this.copyFrom(plane.buffer.array())
         else {
@@ -97,7 +97,7 @@ class YuvToRgbConverter(context: Context) {
     // see https://stackoverflow.com/a/52740776/192373
 // for 1920x1080 interleaved time is reduced from 13 ms to 2 ms
 // for less optimal resolution 1440x1080 to 5 ms
-    private fun Image.toByteArray(outputBuffer: ByteArray) {
+    private fun ImageProxy.toByteArray(outputBuffer: ByteArray) {
 
         assert(format == ImageFormat.YUV_420_888)
         assert(planes[1].pixelStride == planes[2].pixelStride)
@@ -134,7 +134,7 @@ class YuvToRgbConverter(context: Context) {
         return false
     }
 
-    private fun Image.Plane.extractLuminance(imageCrop: Rect, outputBuffer: ByteArray) {
+    private fun ImageProxy.PlaneProxy.extractLuminance(imageCrop: Rect, outputBuffer: ByteArray) {
         var outputOffset = 0
 
         assert(pixelStride == 1)
@@ -163,8 +163,8 @@ class YuvToRgbConverter(context: Context) {
         }
     }
 
-    private fun Image.Plane.extractChromaInterleaved(
-            uPlane: Image.Plane,
+    private fun ImageProxy.PlaneProxy.extractChromaInterleaved(
+            uPlane: ImageProxy.PlaneProxy,
             imageCrop: Rect,
             outputArray: ByteArray,
             uPlaneOffset: Int = 1
@@ -221,7 +221,7 @@ class YuvToRgbConverter(context: Context) {
         }
     }
 
-    private fun Image.Plane.extractChroma(
+    private fun ImageProxy.PlaneProxy.extractChroma(
             firstOffset: Int,
             imageCrop: Rect,
             outputArray: ByteArray
