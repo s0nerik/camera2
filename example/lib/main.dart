@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:camera2/camera2.dart';
-import 'package:camera2_example/analysis_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:pedantic/pedantic.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -43,14 +42,6 @@ class StartScreen extends StatelessWidget {
               ));
             },
             child: const Text('Photo'),
-          ),
-          RaisedButton(
-            onPressed: () {
-              Navigator.of(context).push<void>(MaterialPageRoute(
-                builder: (context) => const AnalysisScreen(),
-              ));
-            },
-            child: const Text('Image analysis'),
           ),
         ],
       ),
