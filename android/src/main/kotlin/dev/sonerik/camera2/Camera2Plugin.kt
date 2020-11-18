@@ -3,9 +3,7 @@ package dev.sonerik.camera2
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
+import android.graphics.*
 import android.graphics.drawable.BitmapDrawable
 import android.media.MediaActionSound
 import android.os.Handler
@@ -34,6 +32,7 @@ import io.flutter.plugin.platform.PlatformViewFactory
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.*
 import kotlin.math.max
+import kotlin.math.min
 
 /** Camera2Plugin */
 class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
@@ -412,17 +411,23 @@ private fun readImageCropped(
     val src = bakeExifOrientation(bitmap, image.imageInfo.rotationDegrees)
 
     val srcAspectRatio = src.width.toDouble() / src.height.toDouble()
-
     val previewSrcRatio = previewAspectRatio / srcAspectRatio
     val adjustedSrcWidth = src.width * previewSrcRatio
-    val extraWidth = max(0.0, src.width - adjustedSrcWidth)
+    val extraWidth = max(src.width.toDouble(), adjustedSrcWidth) - min(src.width.toDouble(), adjustedSrcWidth)
 
-    val w = (src.width - extraWidth) * centerCropWidthPercent
-    val h = w / centerCropAspectRatio
+    val adjustedWidth = (src.width - extraWidth) * centerCropWidthPercent
+    val adjustedHeight = adjustedWidth / centerCropAspectRatio
+    val widthDiff = src.width - adjustedWidth
+    val heightDiff = src.height - adjustedHeight
 
-    val srcX = src.width / 2.0 - w / 2.0
-    val srcY = src.height / 2.0 - h / 2.0
-    val croppedBitmap = Bitmap.createBitmap(src, srcX.toInt(), srcY.toInt(), w.toInt(), h.toInt())
+    val left = widthDiff / 2
+    val top = heightDiff / 2
+    val right = src.width - widthDiff / 2
+    val bottom = src.height - heightDiff / 2
+    val width = right - left
+    val height = bottom - top
+
+    val croppedBitmap = Bitmap.createBitmap(src, left.toInt(), top.toInt(), width.toInt(), height.toInt())
     src.recycle()
 
     ByteArrayOutputStream().use { stream ->

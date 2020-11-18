@@ -365,20 +365,23 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
         )
         
         let srcAspectRatio = Double(src.width) / Double(src.height)
-        
         let previewSrcRatio = previewAspectRatio / srcAspectRatio
         let adjustedSrcWidth = Double(src.width) * previewSrcRatio
-        let extraWidth = max(0, Double(src.width) - adjustedSrcWidth)
+        let extraWidth = max(Double(src.width), adjustedSrcWidth) - min(Double(src.width), adjustedSrcWidth)
         
-        let w = (Double(src.width) - extraWidth) * centerCropWidthPercent
-        let h = w / centerCropAspectRatio
+        let adjustedWidth = (Double(src.width) - extraWidth) * centerCropWidthPercent
+        let adjustedHeight = adjustedWidth / centerCropAspectRatio
+        let widthDiff = Double(src.width) - adjustedWidth
+        let heightDiff = Double(src.height) - adjustedHeight
         
-        let srcX = Double(src.width) / 2.0 - w / 2.0
-        let srcY = Double(src.height) / 2.0 - h / 2.0
+        let left = widthDiff / 2
+        let top = heightDiff / 2
+        let right = Double(src.width) - widthDiff / 2
+        let bottom = Double(src.height) - heightDiff / 2
+        let width = right - left
+        let height = bottom - top
         
-        let cropRect = CGRect(x: srcX, y: srcY, width: w, height: h)
-        
-        if let croppedCGImage = src.cropping(to: cropRect) {
+        if let croppedCGImage = src.cropping(to: CGRect(x: left, y: top, width: width, height: height)) {
             return UIImage(cgImage: croppedCGImage, scale: 1.0, orientation: .up)
         }
         
