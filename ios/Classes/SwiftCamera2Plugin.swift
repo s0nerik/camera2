@@ -265,13 +265,12 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
                 photoSettings.flashMode = .auto
             }
             
-            let previewAspectRatio = Double(_view.bounds.size.width) / Double(_view.bounds.size.height)
-            
             let delegate = PhotoCaptureDelegate(
                 result: result,
                 pictureBytesChannel: pictureBytesChannel,
                 args: captureArgs,
-                previewAspectRatio: previewAspectRatio,
+                previewWidth: Double(_view.bounds.size.width),
+                previewHeight: Double(_view.bounds.size.height),
                 onComplete: { [weak self] in self?.inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = nil }
             )
             inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = delegate
@@ -295,14 +294,23 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
     private let _result: FlutterResult
     private let _pictureBytesChannel: FlutterMethodChannel
     private let _args: PhotoCaptureArgs
-    private let _previewAspectRatio: Double
+    private let _previewWidth: Double
+    private let _previewHeight: Double
     private let _onComplete: () -> Void
     
-    init(result: @escaping FlutterResult, pictureBytesChannel: FlutterMethodChannel, args: PhotoCaptureArgs, previewAspectRatio: Double, onComplete: @escaping () -> Void) {
+    init(
+        result: @escaping FlutterResult,
+        pictureBytesChannel: FlutterMethodChannel,
+        args: PhotoCaptureArgs,
+        previewWidth: Double,
+        previewHeight: Double,
+        onComplete: @escaping () -> Void
+    ) {
         _result = result
         _pictureBytesChannel = pictureBytesChannel
         _args = args
-        _previewAspectRatio = previewAspectRatio
+        _previewWidth = previewWidth
+        _previewHeight = previewHeight
         _onComplete = onComplete
         super.init()
     }
@@ -327,7 +335,8 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
             if (_args.centerCropAspectRatio != nil && _args.centerCropWidthPercent != nil) {
                 let croppedImage = cropPhoto(
                     photo: photo,
-                    previewAspectRatio: _previewAspectRatio,
+                    previewWidth: _previewWidth,
+                    previewHeight: _previewHeight,
                     centerCropAspectRatio: _args.centerCropAspectRatio!,
                     centerCropWidthPercent: _args.centerCropWidthPercent!
                 )
@@ -351,7 +360,8 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
     
     private func cropPhoto(
         photo: AVCapturePhoto,
-        previewAspectRatio: Double,
+        previewWidth: Double,
+        previewHeight: Double,
         centerCropAspectRatio: Double,
         centerCropWidthPercent: Double
     ) -> UIImage? {
@@ -364,28 +374,67 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
             orienation: imageOrientation
         )
         
-        let srcAspectRatio = Double(src.width) / Double(src.height)
-        let previewSrcRatio = previewAspectRatio / srcAspectRatio
-        let adjustedSrcWidth = Double(src.width) * previewSrcRatio
-        let extraWidth = max(Double(src.width), adjustedSrcWidth) - min(Double(src.width), adjustedSrcWidth)
+        let centerCropRect = centerCroppedSourceRect(
+            sourceWidth: CGFloat(src.width),
+            sourceHeight: CGFloat(src.height),
+            targetWidth: CGFloat(previewWidth),
+            targetHeight: CGFloat(previewHeight)
+        )
+
+        let targetCropRect = centerCroppedStencilRect(
+            rect: centerCropRect,
+            stencilWidthPercent: CGFloat(centerCropWidthPercent),
+            stencilAspectRatio: CGFloat(centerCropAspectRatio)
+        );
         
-        let adjustedWidth = (Double(src.width) - extraWidth) * centerCropWidthPercent
-        let adjustedHeight = adjustedWidth / centerCropAspectRatio
-        let widthDiff = Double(src.width) - adjustedWidth
-        let heightDiff = Double(src.height) - adjustedHeight
-        
-        let left = widthDiff / 2
-        let top = heightDiff / 2
-        let right = Double(src.width) - widthDiff / 2
-        let bottom = Double(src.height) - heightDiff / 2
-        let width = right - left
-        let height = bottom - top
-        
-        if let croppedCGImage = src.cropping(to: CGRect(x: left, y: top, width: width, height: height)) {
+        if let croppedCGImage = src.cropping(to: targetCropRect) {
             return UIImage(cgImage: croppedCGImage, scale: 1.0, orientation: .up)
         }
         
         return nil
+    }
+    
+    private func centerCroppedSourceRect(sourceWidth: CGFloat, sourceHeight: CGFloat, targetWidth: CGFloat, targetHeight: CGFloat, inSourceCoordinates: Bool = true) -> CGRect {
+        let sourceAspectRatio = sourceWidth / sourceHeight
+        let targetAspectRatio = targetWidth / targetHeight
+        let widthFactor = sourceWidth / targetWidth
+        let heightFactor = sourceHeight / targetHeight
+        let scale = sourceAspectRatio <= targetAspectRatio ? widthFactor : heightFactor
+        let targetSourceWidth = sourceWidth / scale
+        let targetSourceHeight = sourceHeight / scale
+        let extraTargetWidth = targetSourceWidth - targetWidth
+        let extraSourceWidth = extraTargetWidth * scale
+        let extraTargetHeight = targetSourceHeight - targetHeight
+        let extraSourceHeight = extraTargetHeight * scale
+        
+        if (inSourceCoordinates) {
+            return CGRect(
+                x: extraSourceWidth / 2,
+                y: extraSourceHeight / 2,
+                width: sourceWidth - extraSourceWidth,
+                height: sourceHeight - extraSourceHeight
+            )
+        } else {
+            return CGRect(
+                x: extraTargetWidth / 2,
+                y: extraTargetHeight / 2,
+                width: targetWidth - extraTargetWidth,
+                height: targetHeight - extraTargetHeight
+            )
+        }
+    }
+    
+    private func centerCroppedStencilRect(rect: CGRect, stencilWidthPercent: CGFloat, stencilAspectRatio: CGFloat) -> CGRect {
+        let targetCropWidth = rect.width * stencilWidthPercent
+        let targetCropHeight = targetCropWidth / stencilAspectRatio
+        let targetCropExtraWidth = rect.width - targetCropWidth
+        let targetCropExtraHeight = rect.height - targetCropHeight
+        return CGRect(
+            x: rect.minX + targetCropExtraWidth / 2,
+            y: rect.minY + targetCropExtraHeight / 2,
+            width: targetCropWidth,
+            height: targetCropHeight
+        )
     }
 }
 
