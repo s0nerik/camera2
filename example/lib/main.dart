@@ -235,22 +235,30 @@ class _PreviewScreenState extends State<PreviewScreen> {
                 return Container();
               }
               return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(_resolution),
-                  Image(
-                    image: MemoryImage(snapshot.data),
-                    gaplessPlayback: true,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) return child;
-                      return Center(
-                        child: CircularProgressIndicator(
-                          value: loadingProgress.expectedTotalBytes != null
-                              ? loadingProgress.cumulativeBytesLoaded /
-                                  loadingProgress.expectedTotalBytes
-                              : null,
-                        ),
-                      );
-                    },
+                  Text(
+                    _resolution,
+                    textAlign: TextAlign.center,
+                  ),
+                  Expanded(
+                    child: Image(
+                      image: MemoryImage(snapshot.data),
+                      gaplessPlayback: true,
+                      fit: BoxFit.contain,
+                      alignment: Alignment.topCenter,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return Center(
+                          child: CircularProgressIndicator(
+                            value: loadingProgress.expectedTotalBytes != null
+                                ? loadingProgress.cumulativeBytesLoaded /
+                                    loadingProgress.expectedTotalBytes
+                                : null,
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ],
               );
