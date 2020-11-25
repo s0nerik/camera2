@@ -385,7 +385,7 @@ private class PhotoCaptureDelegate : NSObject, AVCapturePhotoCaptureDelegate {
             rect: centerCropRect,
             stencilWidthPercent: CGFloat(centerCropWidthPercent),
             stencilAspectRatio: CGFloat(centerCropAspectRatio)
-        );
+        )
         
         if let croppedCGImage = src.cropping(to: targetCropRect) {
             return UIImage(cgImage: croppedCGImage, scale: 1.0, orientation: .up)
