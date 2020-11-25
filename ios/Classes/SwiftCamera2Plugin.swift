@@ -85,11 +85,8 @@ private class CameraProviderHolder {
         session.beginConfiguration()
         
         // Set preferred resolution
-        if previewArgs?.preferredPhotoWidth != nil && previewArgs?.preferredPhotoHeight != nil {
-            session.sessionPreset = presetFromPreferredResolution(
-                width: previewArgs!.preferredPhotoWidth!,
-                height:previewArgs!.preferredPhotoHeight!
-            )
+        if let preferredPhotoSize = previewArgs?.preferredPhotoSize {
+            session.sessionPreset = presetFromPreferredResolution(size: preferredPhotoSize)
         } else {
             session.sessionPreset = .photo
         }
@@ -124,8 +121,8 @@ private class CameraProviderHolder {
         activePreviewSessions.setObject(session, forKey: NSNumber(value: viewId))
     }
     
-    private func presetFromPreferredResolution(width: Int, height: Int) -> AVCaptureSession.Preset {
-        let pixels = width * height
+    private func presetFromPreferredResolution(size: CGSize) -> AVCaptureSession.Preset {
+        let pixels = size.width * size.height
         if (pixels <= 1280 * 720) {
             return .hd1280x720
         }
@@ -140,8 +137,17 @@ private class CameraProviderHolder {
 }
 
 private struct CameraPreviewArgs {
-    let preferredPhotoWidth: Int?
-    let preferredPhotoHeight: Int?
+    let preferredPhotoSize: CGSize?
+    let analysisOptions: C2AnalysisOptions?
+    
+    init(dictionary args: Dictionary<String, Any?>) {
+        if let preferredPhotoWidth = args["preferredPhotoWidth"] as? Int, let preferredPhotoHeight = args["preferredPhotoHeight"] as? Int {
+            self.preferredPhotoSize = CGSize(width: preferredPhotoWidth, height: preferredPhotoHeight)
+        }
+        if let analysisOptions = args["analysisOptions"] as? Dictionary<String, Any?> {
+            self.analysisOptions = C2AnalysisOptions(dictionary: analysisOptions)
+        }
+    }
 }
 
 @available(iOS 11.0, *)
@@ -164,12 +170,9 @@ private class CameraPreviewFactory: NSObject, FlutterPlatformViewFactory {
         viewIdentifier viewId: Int64,
         arguments args: Any?
     ) -> FlutterPlatformView {
-        var previewArgs: CameraPreviewArgs?
+        let previewArgs: CameraPreviewArgs?
         if let args = args as? Dictionary<String, Any?> {
-            previewArgs = CameraPreviewArgs(
-                preferredPhotoWidth: args["preferredPhotoWidth"] as? Int,
-                preferredPhotoHeight: args["preferredPhotoHeight"] as? Int
-            )
+            previewArgs = CameraPreviewArgs(dictionary: args)
         }
         let view = CameraPreviewView(
             frame: frame,
@@ -275,6 +278,8 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
             )
             inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = delegate
             _cameraProviderHolder?.getPhotoOutput(viewId: _viewId)?.capturePhoto(with: photoSettings, delegate: delegate)
+        case "requestImageForAnalysis":
+            result(FlutterMethodNotImplemented)
         default:
             result(FlutterMethodNotImplemented)
         }
