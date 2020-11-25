@@ -349,9 +349,10 @@ private class CameraPreviewView(
                             val resultBytes = if (centerCropAspectRatio != null && centerCropWidthPercent != null) {
                                 readImageCropped(
                                         image,
-                                        previewAspectRatio = previewView.width.toDouble() / previewView.height.toDouble(),
-                                        centerCropAspectRatio = centerCropAspectRatio,
-                                        centerCropWidthPercent = centerCropWidthPercent,
+                                        previewWidth = previewView.width.toFloat(),
+                                        previewHeight = previewView.height.toFloat(),
+                                        centerCropAspectRatio = centerCropAspectRatio.toFloat(),
+                                        centerCropWidthPercent = centerCropWidthPercent.toFloat(),
                                         quality = call.argument<Int>("jpegQuality")!!
                                 )
                             } else {
@@ -393,9 +394,10 @@ private class CameraPreviewView(
 
 private fun readImageCropped(
         image: ImageProxy,
-        previewAspectRatio: Double,
-        centerCropAspectRatio: Double,
-        centerCropWidthPercent: Double,
+        previewWidth: Float,
+        previewHeight: Float,
+        centerCropAspectRatio: Float,
+        centerCropWidthPercent: Float,
         quality: Int
 ): ByteArray {
     lateinit var resultBytes: ByteArray
@@ -410,24 +412,26 @@ private fun readImageCropped(
     val bitmap = BitmapFactory.decodeByteArray(resultBytes, 0, resultBytes.size)
     val src = bakeExifOrientation(bitmap, image.imageInfo.rotationDegrees)
 
-    val srcAspectRatio = src.width.toDouble() / src.height.toDouble()
-    val previewSrcRatio = previewAspectRatio / srcAspectRatio
-    val adjustedSrcWidth = src.width * previewSrcRatio
-    val extraWidth = max(src.width.toDouble(), adjustedSrcWidth) - min(src.width.toDouble(), adjustedSrcWidth)
+    val centerCropRect = centerCroppedSourceRect(
+            sourceWidth = src.width.toFloat(),
+            sourceHeight = src.height.toFloat(),
+            targetWidth = previewWidth,
+            targetHeight = previewHeight
+    )
 
-    val adjustedWidth = (src.width - extraWidth) * centerCropWidthPercent
-    val adjustedHeight = adjustedWidth / centerCropAspectRatio
-    val widthDiff = src.width - adjustedWidth
-    val heightDiff = src.height - adjustedHeight
+    val targetCropRect = centerCroppedStencilRect(
+            rect = centerCropRect,
+            stencilWidthPercent = centerCropWidthPercent,
+            stencilAspectRatio = centerCropAspectRatio
+    )
 
-    val left = widthDiff / 2
-    val top = heightDiff / 2
-    val right = src.width - widthDiff / 2
-    val bottom = src.height - heightDiff / 2
-    val width = right - left
-    val height = bottom - top
-
-    val croppedBitmap = Bitmap.createBitmap(src, left.toInt(), top.toInt(), width.toInt(), height.toInt())
+    val croppedBitmap = Bitmap.createBitmap(
+            src,
+            targetCropRect.left,
+            targetCropRect.top,
+            targetCropRect.width(),
+            targetCropRect.height()
+    )
     src.recycle()
 
     ByteArrayOutputStream().use { stream ->
@@ -450,61 +454,6 @@ private fun readImageNonCropped(
         }
         it.toByteArray()
     }
-}
-
-private fun centerCroppedSourceRect(
-        sourceWidth: Float,
-        sourceHeight: Float,
-        targetWidth: Float,
-        targetHeight: Float,
-        inSourceCoordinates: Boolean = true
-): Rect {
-    val sourceAspectRatio = sourceWidth / sourceHeight
-    val targetAspectRatio = targetWidth / targetHeight
-    val widthFactor = sourceWidth / targetWidth
-    val heightFactor = sourceHeight / targetHeight
-    val scale = if (sourceAspectRatio <= targetAspectRatio) widthFactor else heightFactor
-    val targetSourceWidth = sourceWidth / scale
-    val targetSourceHeight = sourceHeight / scale
-    val extraTargetWidth = targetSourceWidth - targetWidth
-    val extraSourceWidth = extraTargetWidth * scale
-    val extraTargetHeight = targetSourceHeight - targetHeight
-    val extraSourceHeight = extraTargetHeight * scale
-
-    if (inSourceCoordinates) {
-        val width = sourceWidth - extraSourceWidth
-        val height = sourceHeight - extraSourceHeight
-        val left = extraSourceWidth / 2
-        val top = extraSourceHeight / 2
-        val right = left + width
-        val bottom = top + height
-        return Rect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
-    } else {
-        val width = targetWidth - extraTargetWidth
-        val height = targetHeight - extraTargetHeight
-        val left = extraTargetWidth / 2
-        val top = extraTargetHeight / 2
-        val right = left + width
-        val bottom = top + height
-        return Rect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
-    }
-}
-
-private fun centerCroppedStencilRect(
-        rect: Rect,
-        stencilWidthPercent: Float,
-        stencilAspectRatio: Float
-): Rect {
-    val targetCropWidth = rect.width() * stencilWidthPercent
-    val targetCropHeight = targetCropWidth / stencilAspectRatio
-    val targetCropExtraWidth = rect.width() - targetCropWidth
-    val targetCropExtraHeight = rect.height() - targetCropHeight
-
-    val left = rect.left + targetCropExtraWidth / 2
-    val top = rect.top + targetCropExtraHeight / 2
-    val right = left + targetCropWidth
-    val bottom = top + targetCropHeight
-    return Rect(left.toInt(), top.toInt(), right.toInt(), bottom.toInt())
 }
 
 private fun bakeExifOrientation(bitmap: Bitmap, rotationDegrees: Int): Bitmap {
