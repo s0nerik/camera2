@@ -39,7 +39,7 @@ private class CameraProviderHolder {
         return activePreviewOutputs.object(forKey: NSNumber(value: viewId))
     }
     
-    func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView, previewArgs: CameraPreviewArgs?) {
+    func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView, previewArgs: CameraPreviewArgs) {
         let session = AVCaptureSession()
         prepareSession(session: session, viewId: viewId, previewArgs: previewArgs)
         previewView.captureSession = session
@@ -81,11 +81,11 @@ private class CameraProviderHolder {
         }
     }
     
-    func prepareSession(session: AVCaptureSession, viewId: Int64, previewArgs: CameraPreviewArgs?) {
+    func prepareSession(session: AVCaptureSession, viewId: Int64, previewArgs: CameraPreviewArgs) {
         session.beginConfiguration()
         
         // Set preferred resolution
-        if let preferredPhotoSize = previewArgs?.preferredPhotoSize {
+        if let preferredPhotoSize = previewArgs.preferredPhotoSize {
             session.sessionPreset = presetFromPreferredResolution(size: preferredPhotoSize)
         } else {
             session.sessionPreset = .photo
@@ -143,9 +143,13 @@ private struct CameraPreviewArgs {
     init(dictionary args: Dictionary<String, Any?>) {
         if let preferredPhotoWidth = args["preferredPhotoWidth"] as? Int, let preferredPhotoHeight = args["preferredPhotoHeight"] as? Int {
             self.preferredPhotoSize = CGSize(width: preferredPhotoWidth, height: preferredPhotoHeight)
+        } else {
+            self.preferredPhotoSize = nil
         }
         if let analysisOptions = args["analysisOptions"] as? Dictionary<String, Any?> {
             self.analysisOptions = C2AnalysisOptions(dictionary: analysisOptions)
+        } else {
+            self.analysisOptions = nil
         }
     }
 }
@@ -170,14 +174,11 @@ private class CameraPreviewFactory: NSObject, FlutterPlatformViewFactory {
         viewIdentifier viewId: Int64,
         arguments args: Any?
     ) -> FlutterPlatformView {
-        let previewArgs: CameraPreviewArgs?
-        if let args = args as? Dictionary<String, Any?> {
-            previewArgs = CameraPreviewArgs(dictionary: args)
-        }
+        let previewArgs = CameraPreviewArgs(dictionary: args as! Dictionary<String, Any?>)
         let view = CameraPreviewView(
             frame: frame,
             viewIdentifier: viewId,
-            arguments: args,
+            arguments: previewArgs,
             binaryMessenger: messenger,
             onDispose: {
                 self.cameraProviderHolder?.onPreviewDisposed(viewId: viewId)
@@ -207,7 +208,7 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
     init(
         frame: CGRect,
         viewIdentifier viewId: Int64,
-        arguments args: Any?,
+        arguments args: CameraPreviewArgs,
         binaryMessenger messenger: FlutterBinaryMessenger?,
         onDispose: (() -> Void)?,
         cameraProviderHolder: CameraProviderHolder?

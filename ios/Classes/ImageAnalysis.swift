@@ -52,9 +52,13 @@ struct C2AnalysisOptions {
         
         if let centerCropAspectRatio = (opts["centerCropAspectRatio"] as? NSNumber)?.floatValue {
             self.centerCropAspectRatio = CGFloat(centerCropAspectRatio)
+        } else {
+            self.centerCropAspectRatio = nil
         }
         if let centerCropWidthPercent = (opts["centerCropWidthPercent"] as? NSNumber)?.floatValue {
             self.centerCropWidthPercent = CGFloat(centerCropWidthPercent)
+        } else {
+            self.centerCropWidthPercent = nil
         }
     }
 }
@@ -62,8 +66,18 @@ struct C2AnalysisOptions {
 class C2ImageAnalysisHelper : NSObject {
     private let opts: C2AnalysisOptions
     
+    private var analysisBitmap: CGImage?
+    private var targetBitmap: CGImage?
+    
+    private let outBuffer: Data
+    
+    private let bitmapBuffer: Array<Int>
+    private let colorsBuffer = [0, 0, 0]
+    
     init(opts: C2AnalysisOptions) {
         self.opts = opts
+        self.outBuffer = Data(capacity: Int(opts.imageSize.width * opts.imageSize.height * 3))
+        self.bitmapBuffer = Array(repeating: 0, count: Int(opts.imageSize.width * opts.imageSize.height * 4))
         super.init()
     }
     
