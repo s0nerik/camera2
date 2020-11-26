@@ -63,7 +63,7 @@ struct C2AnalysisOptions {
     }
 }
 
-class C2ImageAnalysisHelper : NSObject {
+class C2ImageAnalysisHelper : NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let opts: C2AnalysisOptions
     
     private var analysisBitmap: CGImage?
@@ -71,8 +71,16 @@ class C2ImageAnalysisHelper : NSObject {
     
     private let outBuffer: Data
     
-    private let bitmapBuffer: Array<Int>
-    private let colorsBuffer = [0, 0, 0]
+    private let bitmapBuffer: Array<UInt8>
+    private var analysisBuffer: Array<UInt8> = []
+    
+    let analysisImageQueue = DispatchQueue(label: "analysis image queue")
+    
+    var lastFrame: Data {
+        get {
+            return Data(bytes: analysisBuffer, count: analysisBuffer.count)
+        }
+    }
     
     init(opts: C2AnalysisOptions) {
         self.opts = opts
@@ -81,4 +89,80 @@ class C2ImageAnalysisHelper : NSObject {
         super.init()
     }
     
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        connection.videoOrientation = AVCaptureVideoOrientation.portrait
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return  }
+        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+        
+        let context = CIContext()
+        guard let origCgImage = context.createCGImage(ciImage, from: ciImage.extent),
+              let cgImage = resize(origCgImage),
+              let data = cgImage.dataProvider?.data,
+              let bytes = CFDataGetBytePtr(data) else {
+            return
+        }
+        
+        let bytesPerPixel = cgImage.bitsPerPixel / cgImage.bitsPerComponent
+        
+        let bufferSize = cgImage.height * cgImage.width * 3
+        if (bufferSize != analysisBuffer.count) {
+            analysisBuffer = Array(repeating: 0, count: bufferSize)
+        }
+        
+        var i = 0
+        for y in 0 ..< cgImage.height {
+            for x in 0 ..< cgImage.width {
+                let offset = (y * cgImage.bytesPerRow) + (x * bytesPerPixel)
+                analysisBuffer[i] = bytes[offset]
+                analysisBuffer[i + 1] = bytes[offset + 1]
+                analysisBuffer[i + 2] = bytes[offset + 2]
+                i += 3
+            }
+        }
+    }
+    
+    func resize(_ image: CGImage) -> CGImage? {
+        guard let colorSpace = image.colorSpace else { return nil }
+        guard let context = CGContext(
+            data: nil,
+            width: Int(opts.imageSize.width),
+            height: Int(opts.imageSize.height),
+            bitsPerComponent: image.bitsPerComponent,
+            bytesPerRow: image.bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: image.alphaInfo.rawValue
+        ) else { return nil }
+        
+        var croppedImage = image
+        
+        if let centerCropWidthPercent = opts.centerCropWidthPercent,
+           let centerCropAspectRatio = opts.centerCropAspectRatio {
+            let targetCropRect = centerCroppedStencilRect(
+                rect: CGRect(
+                    x: 0,
+                    y: 0,
+                    width: Int(image.width),
+                    height: Int(image.height)
+                ),
+                stencilWidthPercent: CGFloat(centerCropWidthPercent),
+                stencilAspectRatio: CGFloat(centerCropAspectRatio)
+            )
+            croppedImage = image.cropping(to: targetCropRect)!
+        }
+        
+        // draw image to context (resizing it)
+        context.interpolationQuality = .low
+        context.draw(
+            croppedImage,
+            in: CGRect(
+                x: 0,
+                y: 0,
+                width: Int(opts.imageSize.width),
+                height: Int(opts.imageSize.height)
+            )
+        )
+        
+        // extract resulting image from context
+        return context.makeImage()
+    }
 }

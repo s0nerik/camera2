@@ -35,11 +35,22 @@ private class CameraProviderHolder {
     private let activePreviewSessions = NSMapTable<NSNumber, AVCaptureSession>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     private let activePreviewOutputs = NSMapTable<NSNumber, AVCapturePhotoOutput>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     
+    private var _analysisHelper: C2ImageAnalysisHelper? = nil
+    var analysisHelper: C2ImageAnalysisHelper? {
+        get {
+            return _analysisHelper;
+        }
+    }
+    
     func getPhotoOutput(viewId: Int64) -> AVCapturePhotoOutput? {
         return activePreviewOutputs.object(forKey: NSNumber(value: viewId))
     }
     
     func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView, previewArgs: CameraPreviewArgs) {
+        if let analysisOptions = previewArgs.analysisOptions, _analysisHelper == nil {
+            _analysisHelper = C2ImageAnalysisHelper(opts: analysisOptions)
+        }
+        
         let session = AVCaptureSession()
         prepareSession(session: session, viewId: viewId, previewArgs: previewArgs)
         previewView.captureSession = session
@@ -114,6 +125,17 @@ private class CameraProviderHolder {
         if session.canAddOutput(output) {
             session.addOutput(output)
         }
+        
+        if let analysisHelper = _analysisHelper {
+            let cvOutput = AVCaptureVideoDataOutput()
+            cvOutput.alwaysDiscardsLateVideoFrames = true
+            cvOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)]
+            cvOutput.setSampleBufferDelegate(analysisHelper, queue: analysisHelper.analysisImageQueue)
+            if session.canAddOutput(cvOutput) {
+                session.addOutput(cvOutput)
+            }
+        }
+        
         session.commitConfiguration()
         
         // Store output and AVCaptureSession for later access
@@ -156,8 +178,8 @@ private struct CameraPreviewArgs {
 
 @available(iOS 11.0, *)
 private class CameraPreviewFactory: NSObject, FlutterPlatformViewFactory {
-    private let messenger: FlutterBinaryMessenger?
-    private let cameraProviderHolder: CameraProviderHolder?
+    private let messenger: FlutterBinaryMessenger
+    private let cameraProviderHolder: CameraProviderHolder
     
     init(messenger: FlutterBinaryMessenger, cameraProviderHolder: CameraProviderHolder) {
         self.messenger = messenger
@@ -181,11 +203,11 @@ private class CameraPreviewFactory: NSObject, FlutterPlatformViewFactory {
             arguments: previewArgs,
             binaryMessenger: messenger,
             onDispose: {
-                self.cameraProviderHolder?.onPreviewDisposed(viewId: viewId)
+                self.cameraProviderHolder.onPreviewDisposed(viewId: viewId)
             },
             cameraProviderHolder: cameraProviderHolder
         )
-        cameraProviderHolder?.onPreviewCreated(viewId: viewId, previewView: view, previewArgs: previewArgs)
+        cameraProviderHolder.onPreviewCreated(viewId: viewId, previewView: view, previewArgs: previewArgs)
         return view
     }
 }
@@ -280,7 +302,7 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
             inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = delegate
             _cameraProviderHolder?.getPhotoOutput(viewId: _viewId)?.capturePhoto(with: photoSettings, delegate: delegate)
         case "requestImageForAnalysis":
-            result(FlutterMethodNotImplemented)
+            result(_cameraProviderHolder?.analysisHelper?.lastFrame)
         default:
             result(FlutterMethodNotImplemented)
         }
