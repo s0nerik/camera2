@@ -17,6 +17,7 @@ dependencies:
     path: ../
   permission_handler: ^5.0.1+1
   pedantic:
+  image: ^2.1.19
 
 dev_dependencies:
   flutter_test:
