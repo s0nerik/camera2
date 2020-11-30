@@ -151,7 +151,7 @@ class C2ImageAnalysisHelper : NSObject, AVCaptureVideoDataOutputSampleBufferDele
         }
         
         // draw image to context (resizing it)
-        context.interpolationQuality = .low
+        context.interpolationQuality = .none
         context.draw(
             croppedImage,
             in: CGRect(
