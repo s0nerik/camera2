@@ -65,28 +65,31 @@ struct C2AnalysisOptions {
 
 class C2ImageAnalysisHelper : NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let opts: C2AnalysisOptions
-    
-    private var analysisBitmap: CGImage?
-    private var targetBitmap: CGImage?
-    
-    private let outBuffer: Data
-    
-    private let bitmapBuffer: Array<UInt8>
-    private var analysisBuffer: Array<UInt8> = []
-    
+    private var analysisBuffer: UnsafeMutableBufferPointer<UInt8>?
+
     let analysisImageQueue = DispatchQueue(label: "analysis image queue")
     
-    var lastFrame: Data {
+    var lastFrame: Data? {
         get {
-            return Data(bytes: analysisBuffer, count: analysisBuffer.count)
+            if let buf = analysisBuffer {
+                if (buf.isEmpty) {
+                    return nil
+                }
+                return Data(bytesNoCopy: buf.baseAddress!, count: buf.count, deallocator: .none)
+            } else {
+                return nil
+            }
         }
     }
     
     init(opts: C2AnalysisOptions) {
         self.opts = opts
-        self.outBuffer = Data(capacity: Int(opts.imageSize.width * opts.imageSize.height * 3))
-        self.bitmapBuffer = Array(repeating: 0, count: Int(opts.imageSize.width * opts.imageSize.height * 4))
+        self.analysisBuffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(opts.imageSize.width * opts.imageSize.height * 3))
         super.init()
+    }
+    
+    deinit {
+        analysisBuffer?.deallocate()
     }
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
@@ -102,12 +105,13 @@ class C2ImageAnalysisHelper : NSObject, AVCaptureVideoDataOutputSampleBufferDele
             return
         }
         
+        if (cgImage.height != Int(opts.imageSize.height) || cgImage.width != Int(opts.imageSize.width)) {
+            fatalError("Analysis image size must stay the same")
+        }
+
         let bytesPerPixel = cgImage.bitsPerPixel / cgImage.bitsPerComponent
         
-        let bufferSize = cgImage.height * cgImage.width * 3
-        if (bufferSize != analysisBuffer.count) {
-            analysisBuffer = Array(repeating: 0, count: bufferSize)
-        }
+        guard let analysisBuffer = analysisBuffer else { return }
         
         var i = 0
         for y in 0 ..< cgImage.height {
@@ -119,6 +123,8 @@ class C2ImageAnalysisHelper : NSObject, AVCaptureVideoDataOutputSampleBufferDele
                 i += 3
             }
         }
+        
+        context.clearCaches()
     }
     
     func resize(_ image: CGImage) -> CGImage? {

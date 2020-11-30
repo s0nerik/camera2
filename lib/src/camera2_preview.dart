@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera2/camera2.dart';
@@ -191,6 +192,9 @@ class Camera2AnalysisOptions {
   final Normalization normalization;
 
   Map<String, dynamic> toMap() {
+    if (Platform.isIOS && colorOrder != ColorOrder.rgb) {
+      throw ArgumentError('Only ColorOrder.rgb is currently supported on iOS');
+    }
     return <String, dynamic>{
       'imageWidth': imageSize.width.toInt(),
       'imageHeight': imageSize.height.toInt(),

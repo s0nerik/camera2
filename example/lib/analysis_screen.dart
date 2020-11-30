@@ -33,6 +33,8 @@ class __BodyState extends State<_Body> {
 
   var _hasPermission = false;
 
+  final _previewImage = image.Image(224, 224);
+
   final _convertedAnalysisImageBytes = StreamController<Uint8List>();
 
   static const _centerCropAspectRatio = 16.0 / 10.0;
@@ -67,15 +69,14 @@ class __BodyState extends State<_Body> {
 
       final imageBytes = await _ctrl.requestImageForAnalysis();
       if (imageBytes != null) {
-        final img = image.Image(224, 224);
         final pixelsAmount = imageBytes.lengthInBytes ~/ 3;
 
         var i = 0;
         var j = 0;
         while (j < pixelsAmount) {
-          img.setPixel(
-            j % 224,
-            j ~/ 224,
+          _previewImage.setPixel(
+            j % _previewImage.width,
+            j ~/ _previewImage.height,
             Color.fromARGB(
               255,
               imageBytes[i],
@@ -88,12 +89,12 @@ class __BodyState extends State<_Body> {
         }
         if (!_convertedAnalysisImageBytes.isClosed) {
           _convertedAnalysisImageBytes.add(
-            Uint8List.fromList(image.encodePng(img)),
+            Uint8List.fromList(image.encodePng(_previewImage)),
           );
         }
       }
 
-      await Future<void>.delayed(const Duration(milliseconds: 14));
+      await Future<void>.delayed(const Duration(milliseconds: 16));
     }
   }
 

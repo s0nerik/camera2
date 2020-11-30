@@ -302,7 +302,11 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
             inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = delegate
             _cameraProviderHolder?.getPhotoOutput(viewId: _viewId)?.capturePhoto(with: photoSettings, delegate: delegate)
         case "requestImageForAnalysis":
-            result(_cameraProviderHolder?.analysisHelper?.lastFrame)
+            if let bytes = _cameraProviderHolder?.analysisHelper?.lastFrame {
+                result(FlutterStandardTypedData(bytes: bytes))
+            } else {
+                result(nil)
+            }
         default:
             result(FlutterMethodNotImplemented)
         }
