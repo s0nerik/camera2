@@ -3,6 +3,7 @@ package dev.sonerik.camera2
 import android.content.Context
 import android.graphics.*
 import android.util.Size
+import androidx.camera.core.ImageInfo
 import androidx.camera.core.ImageProxy
 import java.nio.ByteBuffer
 
@@ -14,20 +15,31 @@ enum class Normalization {
     UBYTE, BYTE, UFLOAT, FLOAT
 }
 
+class AnalysisBitmapHelper(
+        context: Context
+) {
+    private val yuvToRgbConverter = YuvToRgbConverter(context)
+
+    private lateinit var analysisBitmap: Bitmap
+
+    fun getAnalysisBitmap(image: ImageProxy): Bitmap {
+        if (!::analysisBitmap.isInitialized || analysisBitmap.width != image.width || analysisBitmap.height != image.height) {
+            analysisBitmap = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
+        }
+        yuvToRgbConverter.yuvToRgb(image, analysisBitmap)
+        return analysisBitmap
+    }
+}
+
 class ImageAnalysisHelper(
-        context: Context,
         private val targetSize: Size,
         private val colorOrder: ColorOrder,
         private val normalization: Normalization,
         private val centerCropAspectRatio: Float?,
         private val centerCropWidthPercent: Float?
 ) {
-    private lateinit var analysisBitmap: Bitmap
-
     private var targetRotationDegrees: Int = 0
     private lateinit var targetBitmap: Bitmap
-
-    private val yuvToRgbConverter = YuvToRgbConverter(context)
 
     private val outBuffer = ByteBuffer.allocate(targetSize.width * targetSize.height * 3)
     private val bitmapBuffer = IntArray(targetSize.width * targetSize.height * 4)
@@ -38,17 +50,12 @@ class ImageAnalysisHelper(
     val lastFrame: ByteArray?
         get() = _lastFrame
 
-    fun getAnalysisFrame(image: ImageProxy): ByteArray {
-        if (!::analysisBitmap.isInitialized || analysisBitmap.width != image.width || analysisBitmap.height != image.height) {
-            analysisBitmap = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
-        }
-        yuvToRgbConverter.yuvToRgb(image, analysisBitmap)
-
-        if (!::targetBitmap.isInitialized || targetRotationDegrees != image.imageInfo.rotationDegrees) {
-            targetRotationDegrees = image.imageInfo.rotationDegrees
+    fun getAnalysisFrame(analysisBitmap: Bitmap, imageInfo: ImageInfo): ByteArray {
+        if (!::targetBitmap.isInitialized || targetRotationDegrees != imageInfo.rotationDegrees) {
+            targetRotationDegrees = imageInfo.rotationDegrees
             targetBitmap = createTargetBitmap(
                     targetSize = targetSize,
-                    rotationDegrees = image.imageInfo.rotationDegrees
+                    rotationDegrees = imageInfo.rotationDegrees
             )
         }
 

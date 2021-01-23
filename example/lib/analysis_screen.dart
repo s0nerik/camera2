@@ -29,16 +29,44 @@ class _Body extends StatefulWidget {
 }
 
 class __BodyState extends State<_Body> {
+  static const _biggerCenterCropAspectRatio = 16.0 / 10.0;
+  static const _biggerCenterCropWidthPercent = 1.0;
+
+  static const _smallerCenterCropAspectRatio = 16.0 / 10.0;
+  static const _smallerCenterCropWidthPercent = 0.8;
+
+  static const _analysisOptions = <String, Camera2AnalysisOptions>{
+    'bigger': Camera2AnalysisOptions(
+      imageSize: Size(192, 192), // ignore: avoid_redundant_argument_values
+      colorOrder: ColorOrder.rgb, // ignore: avoid_redundant_argument_values
+      normalization: Normalization.ubyte,
+      centerCropWidthPercent: _biggerCenterCropWidthPercent,
+      centerCropAspectRatio: _biggerCenterCropAspectRatio,
+    ),
+    'smaller': Camera2AnalysisOptions(
+      imageSize: Size(224, 224), // ignore: avoid_redundant_argument_values
+      colorOrder: ColorOrder.rgb, // ignore: avoid_redundant_argument_values
+      normalization: Normalization.ubyte,
+      centerCropWidthPercent: _smallerCenterCropWidthPercent,
+      centerCropAspectRatio: _smallerCenterCropAspectRatio,
+    ),
+  };
+
   CameraPreviewController _ctrl;
 
   var _hasPermission = false;
 
-  final _previewImage = image.Image(224, 224);
+  final _biggerPreviewImage = image.Image(
+    _analysisOptions['bigger'].imageSize.width.toInt(),
+    _analysisOptions['bigger'].imageSize.height.toInt(),
+  );
+  final _biggerConvertedAnalysisImageBytes = StreamController<Uint8List>();
 
-  final _convertedAnalysisImageBytes = StreamController<Uint8List>();
-
-  static const _centerCropAspectRatio = 16.0 / 10.0;
-  static const _centerCropWidthPercent = 0.8;
+  final _smallerPreviewImage = image.Image(
+    _analysisOptions['smaller'].imageSize.width.toInt(),
+    _analysisOptions['smaller'].imageSize.height.toInt(),
+  );
+  final _smallerConvertedAnalysisImageBytes = StreamController<Uint8List>();
 
   @override
   void initState() {
@@ -48,7 +76,8 @@ class __BodyState extends State<_Body> {
 
   @override
   void dispose() {
-    _convertedAnalysisImageBytes.close();
+    _biggerConvertedAnalysisImageBytes.close();
+    _smallerConvertedAnalysisImageBytes.close();
     super.dispose();
   }
 
@@ -67,32 +96,20 @@ class __BodyState extends State<_Body> {
         continue;
       }
 
-      final imageBytes = await _ctrl.requestImageForAnalysis();
-      if (imageBytes != null) {
-        final pixelsAmount = imageBytes.lengthInBytes ~/ 3;
-
-        var i = 0;
-        var j = 0;
-        while (j < pixelsAmount) {
-          _previewImage.setPixel(
-            j % _previewImage.width,
-            j ~/ _previewImage.height,
-            Color.fromARGB(
-              255,
-              imageBytes[i],
-              imageBytes[i + 1],
-              imageBytes[i + 2],
-            ).value,
-          );
-          i += 3;
-          j++;
-        }
-        if (!_convertedAnalysisImageBytes.isClosed) {
-          _convertedAnalysisImageBytes.add(
-            Uint8List.fromList(image.encodePng(_previewImage)),
-          );
-        }
-      }
+      final smallerBytes =
+          await _ctrl.requestImageForAnalysis(analysisOptionsId: 'smaller');
+      final biggerBytes =
+          await _ctrl.requestImageForAnalysis(analysisOptionsId: 'bigger');
+      _writePreviewImage(
+        smallerBytes,
+        _smallerPreviewImage,
+        _smallerConvertedAnalysisImageBytes,
+      );
+      _writePreviewImage(
+        biggerBytes,
+        _biggerPreviewImage,
+        _biggerConvertedAnalysisImageBytes,
+      );
 
       await Future<void>.delayed(const Duration(milliseconds: 16));
     }
@@ -108,20 +125,46 @@ class __BodyState extends State<_Body> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text('Analysis image'),
-          Container(
-            height: 200,
-            alignment: Alignment.topCenter,
-            child: StreamBuilder<Uint8List>(
-              stream: _convertedAnalysisImageBytes.stream,
-              builder: (context, snapshot) => snapshot.hasData
-                  ? Image.memory(
-                      snapshot.data,
-                      gaplessPlayback: true,
-                      isAntiAlias: true,
-                      fit: BoxFit.contain,
-                    )
-                  : Container(),
-            ),
+          Row(
+            children: [
+              Container(
+                height: _analysisOptions['bigger'].imageSize.height,
+                alignment: Alignment.topLeft,
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.red),
+                ),
+                child: StreamBuilder<Uint8List>(
+                  stream: _biggerConvertedAnalysisImageBytes.stream,
+                  builder: (context, snapshot) => snapshot.hasData
+                      ? Image.memory(
+                          snapshot.data,
+                          gaplessPlayback: true,
+                          isAntiAlias: true,
+                          fit: BoxFit.contain,
+                        )
+                      : Container(),
+                ),
+              ),
+              const Spacer(),
+              Container(
+                height: _analysisOptions['smaller'].imageSize.height,
+                alignment: Alignment.topRight,
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.green),
+                ),
+                child: StreamBuilder<Uint8List>(
+                  stream: _smallerConvertedAnalysisImageBytes.stream,
+                  builder: (context, snapshot) => snapshot.hasData
+                      ? Image.memory(
+                          snapshot.data,
+                          gaplessPlayback: true,
+                          isAntiAlias: true,
+                          fit: BoxFit.contain,
+                        )
+                      : Container(),
+                ),
+              ),
+            ],
           ),
           const Text('Camera preview'),
           Expanded(
@@ -134,35 +177,83 @@ class __BodyState extends State<_Body> {
 
   Widget _buildPreview() {
     return Stack(
+      alignment: Alignment.center,
       children: [
         Positioned.fill(
           child: Camera2Preview(
-            analysisOptions: const Camera2AnalysisOptions(
-              imageSize:
-                  Size(224, 224), // ignore: avoid_redundant_argument_values
-              colorOrder:
-                  ColorOrder.rgb, // ignore: avoid_redundant_argument_values
-              normalization: Normalization.ubyte,
-              centerCropWidthPercent: _centerCropWidthPercent,
-              centerCropAspectRatio: _centerCropAspectRatio,
-            ),
+            analysisOptions: _analysisOptions,
             onPlatformViewCreated: (ctrl) => _ctrl = ctrl,
           ),
         ),
-        Center(
-          child: SizedBox(
-            width: MediaQuery.of(context).size.width * _centerCropWidthPercent,
-            child: AspectRatio(
-              aspectRatio: _centerCropAspectRatio,
-              child: Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white),
-                ),
+        SizedBox(
+          width:
+              MediaQuery.of(context).size.width * _biggerCenterCropWidthPercent,
+          child: AspectRatio(
+            aspectRatio: _biggerCenterCropAspectRatio,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.red),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: MediaQuery.of(context).size.width *
+              _smallerCenterCropWidthPercent,
+          child: AspectRatio(
+            aspectRatio: _smallerCenterCropAspectRatio,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.green),
               ),
             ),
           ),
         ),
       ],
     );
+  }
+}
+
+void _writePreviewImage(
+  Uint8List imageBytes,
+  image.Image img,
+  StreamController<Uint8List> convertedImgStreamCtrl,
+) {
+  if (imageBytes != null) {
+    // for (var y = 0; y < img.height; y++) {
+    //   for (var x = 0; x < img.width; x++) {
+    //     final i = y * img.width + x;
+    //     img.setPixelRgba(
+    //       x,
+    //       y,
+    //       imageBytes[i],
+    //       imageBytes[i + 1],
+    //       imageBytes[i + 2],
+    //     );
+    //   }
+    // }
+
+    final pixelsAmount = imageBytes.lengthInBytes ~/ 3;
+    var i = 0;
+    var j = 0;
+    while (j < pixelsAmount) {
+      img.setPixelSafe(
+        j % img.width,
+        j ~/ img.height,
+        Color.fromARGB(
+          255,
+          imageBytes[i],
+          imageBytes[i + 1],
+          imageBytes[i + 2],
+        ).value,
+      );
+      i += 3;
+      j++;
+    }
+    if (!convertedImgStreamCtrl.isClosed) {
+      convertedImgStreamCtrl.add(
+        Uint8List.fromList(image.encodePng(img)),
+      );
+    }
   }
 }

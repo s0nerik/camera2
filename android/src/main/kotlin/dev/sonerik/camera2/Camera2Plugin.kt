@@ -31,8 +31,6 @@ import io.flutter.plugin.platform.PlatformView
 import io.flutter.plugin.platform.PlatformViewFactory
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.*
-import kotlin.math.max
-import kotlin.math.min
 
 /** Camera2Plugin */
 class Camera2Plugin : FlutterPlugin, MethodCallHandler, ActivityAware {
@@ -110,7 +108,7 @@ private data class AnalysisOptions(
 
 private data class CameraPreviewArgs(
         val preferredPhotoSize: Size?,
-        val analysisOptions: AnalysisOptions?
+        val analysisOptions: Map<String, AnalysisOptions>
 ) {
     companion object {
         fun fromMap(args: Map<*, *>): CameraPreviewArgs {
@@ -121,29 +119,33 @@ private data class CameraPreviewArgs(
             else
                 null
 
-            val analysisOptions = (args["analysisOptions"] as? Map<*, *>)?.let { opts ->
-                AnalysisOptions(
-                        imageSize = Size(opts["imageWidth"] as Int, opts["imageHeight"] as Int),
-                        colorOrder = when (opts["colorOrder"] as String) {
-                            "rgb" -> ColorOrder.RGB
-                            "rbg" -> ColorOrder.RBG
-                            "gbr" -> ColorOrder.GBR
-                            "grb" -> ColorOrder.GRB
-                            "brg" -> ColorOrder.BRG
-                            "bgr" -> ColorOrder.BGR
-                            else -> error("'colorOrder' value must be one of ['rgb', 'bgr']")
-                        },
-                        normalization = when (opts["normalization"] as? String) {
-                            "ubyte" -> Normalization.UBYTE
-                            "byte" -> Normalization.BYTE
-                            "ufloat" -> Normalization.UFLOAT
-                            "float" -> Normalization.FLOAT
-                            else -> error("'normalization' value must be one of ['ubyte', 'byte', 'ufloat', 'float']")
-                        },
-                        centerCropAspectRatio = (opts["centerCropAspectRatio"] as? Double)?.toFloat(),
-                        centerCropWidthPercent = (opts["centerCropWidthPercent"] as? Double)?.toFloat()
-                )
-            }
+            val analysisOptions = (args["analysisOptions"] as? Map<*, *>)?.let { optsMap ->
+                optsMap.mapValues {
+                    (it.value as? Map<*, *>)?.let { opts ->
+                        AnalysisOptions(
+                                imageSize = Size(opts["imageWidth"] as Int, opts["imageHeight"] as Int),
+                                colorOrder = when (opts["colorOrder"] as String) {
+                                    "rgb" -> ColorOrder.RGB
+                                    "rbg" -> ColorOrder.RBG
+                                    "gbr" -> ColorOrder.GBR
+                                    "grb" -> ColorOrder.GRB
+                                    "brg" -> ColorOrder.BRG
+                                    "bgr" -> ColorOrder.BGR
+                                    else -> error("'colorOrder' value must be one of ['rgb', 'bgr']")
+                                },
+                                normalization = when (opts["normalization"] as? String) {
+                                    "ubyte" -> Normalization.UBYTE
+                                    "byte" -> Normalization.BYTE
+                                    "ufloat" -> Normalization.UFLOAT
+                                    "float" -> Normalization.FLOAT
+                                    else -> error("'normalization' value must be one of ['ubyte', 'byte', 'ufloat', 'float']")
+                                },
+                                centerCropAspectRatio = (opts["centerCropAspectRatio"] as? Double)?.toFloat(),
+                                centerCropWidthPercent = (opts["centerCropWidthPercent"] as? Double)?.toFloat()
+                        )
+                    }
+                }
+            } as Map<String, AnalysisOptions>? ?: mapOf()
 
             return CameraPreviewArgs(
                     preferredPhotoSize = preferredPhotoSize,
@@ -175,12 +177,14 @@ private class CameraPreviewFactory(
 }
 
 private class CameraProviderHolder(
-        private val context: Context
+        context: Context
 ) {
     var lifecycleOwner: LifecycleOwner? = null
 
     private var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>? = null
     private val activePreviews = mutableMapOf<Int, CameraPreviewView>()
+    private val analysisHelpers = mutableMapOf<String, ImageAnalysisHelper>()
+    private val analysisBitmapHelper = AnalysisBitmapHelper(context)
 
     private val cameraProvider
         get() = cameraProviderFuture?.get()
@@ -188,9 +192,9 @@ private class CameraProviderHolder(
     val imagePreview = Preview.Builder()
             .build()
 
+    fun analysisFrame(analysisOptionsId: String) = analysisHelpers[analysisOptionsId]?.lastFrame
+
     private var _imageAnalysis: ImageAnalysis? = null
-    private var _analysisHelper: ImageAnalysisHelper? = null
-    val analysisFrame get() = _analysisHelper?.lastFrame
 
     private lateinit var _imageCapture: ImageCapture
 
@@ -212,22 +216,35 @@ private class CameraProviderHolder(
     }
 
     private fun initImageAnalysis(args: CameraPreviewArgs) {
-        args.analysisOptions?.let { opts ->
-            _analysisHelper = ImageAnalysisHelper(
-                    targetSize = opts.imageSize,
-                    context = context,
-                    colorOrder = opts.colorOrder,
-                    normalization = opts.normalization,
-                    centerCropAspectRatio = opts.centerCropAspectRatio,
-                    centerCropWidthPercent = opts.centerCropWidthPercent
-            )
+        if (args.analysisOptions.isNotEmpty()) {
+            var targetResolution = Size(0, 0)
+            args.analysisOptions.entries.forEach {
+                val opts = it.value
+                analysisHelpers[it.key] = ImageAnalysisHelper(
+                        targetSize = opts.imageSize,
+                        colorOrder = opts.colorOrder,
+                        normalization = opts.normalization,
+                        centerCropAspectRatio = opts.centerCropAspectRatio,
+                        centerCropWidthPercent = opts.centerCropWidthPercent
+                )
+                if (opts.imageSize.width * opts.imageSize.height > targetResolution.width * targetResolution.height) {
+                    targetResolution = opts.imageSize
+                }
+            }
 
             _imageAnalysis = ImageAnalysis.Builder()
-                    .setTargetResolution(opts.imageSize)
+                    .setTargetResolution(targetResolution)
                     .build()
 
+            val analysisHelperValues = analysisHelpers.values.toList()
             _imageAnalysis!!.setAnalyzer(Executors.newSingleThreadExecutor(), ImageAnalysis.Analyzer { image ->
-                image.use { _analysisHelper?.getAnalysisFrame(it) }
+                image.use {
+                    val imageInfo = image.imageInfo
+                    val bitmap = analysisBitmapHelper.getAnalysisBitmap(image)
+                    analysisHelperValues.forEach { helper ->
+                        helper.getAnalysisFrame(bitmap, imageInfo)
+                    }
+                }
             })
         }
     }
@@ -258,7 +275,7 @@ private class CameraProviderHolder(
     fun onPreviewDisposed(viewId: Int) {
         activePreviews -= viewId
         if (activePreviews.isEmpty()) {
-            _analysisHelper = null
+            analysisHelpers.clear()
             withCameraProvider { cameraProvider ->
                 imagePreview.setSurfaceProvider(null)
                 cameraProvider?.unbindAll()
@@ -385,7 +402,10 @@ private class CameraPreviewView(
                     }
                 })
             }
-            "requestImageForAnalysis" -> result.success(cameraProviderHolder.analysisFrame)
+            "requestImageForAnalysis" -> {
+                val analysisOptionsId = call.argument<String>("analysisOptionsId")!!
+                result.success(cameraProviderHolder.analysisFrame(analysisOptionsId))
+            }
             else -> result.notImplemented()
         }
     }

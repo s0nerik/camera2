@@ -143,15 +143,20 @@ class CameraPreviewController {
     }
   }
 
-  Future<Uint8List> requestImageForAnalysis() async {
+  Future<Uint8List> requestImageForAnalysis({
+    @required String analysisOptionsId,
+  }) async {
+    assert(analysisOptionsId != null);
     if (_requestImageForAnalysisCompleter == null ||
         _requestImageForAnalysisCompleter.isCompleted) {
       _requestImageForAnalysisCompleter = Completer();
       unawaited(
-        _channel.invokeMethod<Uint8List>('requestImageForAnalysis').then(
-              _requestImageForAnalysisCompleter.complete,
-              onError: _requestImageForAnalysisCompleter.completeError,
-            ),
+        _channel.invokeMethod<Uint8List>('requestImageForAnalysis', {
+          'analysisOptionsId': analysisOptionsId,
+        }).then(
+          _requestImageForAnalysisCompleter.complete,
+          onError: _requestImageForAnalysisCompleter.completeError,
+        ),
       );
     }
     return _requestImageForAnalysisCompleter.future;
@@ -274,7 +279,7 @@ class Camera2Preview extends StatefulWidget {
   /// `centerCropWidthPercent` combination.
   final Size preferredPhotoSize;
 
-  final Camera2AnalysisOptions analysisOptions;
+  final Map<String, Camera2AnalysisOptions> analysisOptions;
 
   @override
   _Camera2PreviewState createState() => _Camera2PreviewState();
@@ -301,7 +306,9 @@ class _Camera2PreviewState extends State<Camera2Preview> {
       if (widget.preferredPhotoSize != null)
         'preferredPhotoHeight': widget.preferredPhotoSize.height.toInt(),
       if (widget.analysisOptions != null)
-        'analysisOptions': widget.analysisOptions.toMap(),
+        'analysisOptions': widget.analysisOptions.map(
+          (key, value) => MapEntry(key, value.toMap()),
+        ),
     };
 
     if (defaultTargetPlatform == TargetPlatform.android) {
