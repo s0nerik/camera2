@@ -68,6 +68,9 @@ class __BodyState extends State<_Body> {
   );
   final _smallerConvertedAnalysisImageBytes = StreamController<Uint8List>();
 
+  var _smallerTimeMs = 0;
+  var _biggerTimeMs = 0;
+
   @override
   void initState() {
     super.initState();
@@ -96,10 +99,22 @@ class __BodyState extends State<_Body> {
         continue;
       }
 
+      final stopwatch = Stopwatch()..start();
+
       final smallerBytes =
           await _ctrl.requestImageForAnalysis(analysisOptionsId: 'smaller');
+
+      _smallerTimeMs = stopwatch.elapsedMilliseconds;
+
       final biggerBytes =
           await _ctrl.requestImageForAnalysis(analysisOptionsId: 'bigger');
+
+      _biggerTimeMs = stopwatch.elapsedMilliseconds - _smallerTimeMs;
+
+      if (mounted) {
+        setState(() {});
+      }
+
       _writePreviewImage(
         smallerBytes,
         _smallerPreviewImage,
@@ -124,6 +139,10 @@ class __BodyState extends State<_Body> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Text(
+            '''SMALLER: ${_smallerTimeMs}ms, BIGGER: ${_biggerTimeMs}ms, PROC: ${_smallerTimeMs + _biggerTimeMs}ms''',
+            style: const TextStyle(fontSize: 11),
+          ),
           const Text('Analysis image'),
           Row(
             children: [
