@@ -63,12 +63,37 @@ struct C2AnalysisOptions {
     }
 }
 
+class C2ImageAnalysisBitmapHelper : NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    let queue = DispatchQueue(label: "analysis bitmap helper queue")
+    
+    private let helpers: Dictionary<String, C2ImageAnalysisHelper>
+    
+    init(helpers: Dictionary<String, C2ImageAnalysisHelper>) {
+        self.helpers = helpers
+    }
+    
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        connection.videoOrientation = AVCaptureVideoOrientation.portrait
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return  }
+        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+        
+        let context = CIContext()
+        guard let origCgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
+            return
+        }
+
+        helpers.forEach { (_: String, helper: C2ImageAnalysisHelper) in
+            helper.getAnalysisFrame(origCgImage: origCgImage)
+        }
+        
+        context.clearCaches()
+    }
+}
+
 class C2ImageAnalysisHelper : NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let opts: C2AnalysisOptions
     private var analysisBuffer: UnsafeMutableBufferPointer<UInt8>?
 
-    let analysisImageQueue = DispatchQueue(label: "analysis image queue")
-    
     var lastFrame: Data? {
         get {
             if let buf = analysisBuffer {
@@ -92,14 +117,8 @@ class C2ImageAnalysisHelper : NSObject, AVCaptureVideoDataOutputSampleBufferDele
         analysisBuffer?.deallocate()
     }
     
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        connection.videoOrientation = AVCaptureVideoOrientation.portrait
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return  }
-        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-        
-        let context = CIContext()
-        guard let origCgImage = context.createCGImage(ciImage, from: ciImage.extent),
-              let cgImage = resize(origCgImage),
+    func getAnalysisFrame(origCgImage: CGImage) {
+        guard let cgImage = resize(origCgImage),
               let data = cgImage.dataProvider?.data,
               let bytes = CFDataGetBytePtr(data) else {
             return
@@ -123,11 +142,9 @@ class C2ImageAnalysisHelper : NSObject, AVCaptureVideoDataOutputSampleBufferDele
                 i += 3
             }
         }
-        
-        context.clearCaches()
     }
     
-    func resize(_ image: CGImage) -> CGImage? {
+    private func resize(_ image: CGImage) -> CGImage? {
         guard let colorSpace = image.colorSpace else { return nil }
         guard let context = CGContext(
             data: nil,

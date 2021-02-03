@@ -305,16 +305,11 @@ class _Camera2PreviewState extends State<Camera2Preview> {
         'preferredPhotoWidth': widget.preferredPhotoSize.width.toInt(),
       if (widget.preferredPhotoSize != null)
         'preferredPhotoHeight': widget.preferredPhotoSize.height.toInt(),
-      // TODO: remove this condition when iOS support is ready
-      if (widget.analysisOptions?.isNotEmpty == true &&
-          defaultTargetPlatform == TargetPlatform.android)
-        'analysisOptions': widget.analysisOptions.map(
-          (key, value) => MapEntry(key, value.toMap()),
-        ),
-      // TODO: remove this condition when iOS support is ready
-      if (widget.analysisOptions?.isNotEmpty == true &&
-          defaultTargetPlatform == TargetPlatform.iOS)
-        'analysisOptions': widget.analysisOptions.values.first.toMap(),
+      'analysisOptions': widget.analysisOptions?.isNotEmpty == true
+          ? widget.analysisOptions.map(
+              (key, value) => MapEntry(key, value.toMap()),
+            )
+          : const <String, String>{},
     };
 
     if (defaultTargetPlatform == TargetPlatform.android) {

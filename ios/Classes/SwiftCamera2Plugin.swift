@@ -34,21 +34,20 @@ private class CameraProviderHolder {
     private let activePreviews = NSMapTable<NSNumber, CameraPreviewView>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     private let activePreviewSessions = NSMapTable<NSNumber, AVCaptureSession>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     private let activePreviewOutputs = NSMapTable<NSNumber, AVCapturePhotoOutput>(keyOptions: .weakMemory, valueOptions: .weakMemory)
-    
-    private var _analysisHelper: C2ImageAnalysisHelper? = nil
-    var analysisHelper: C2ImageAnalysisHelper? {
-        get {
-            return _analysisHelper;
-        }
-    }
+
+    private var analysisBitmapHelper: C2ImageAnalysisBitmapHelper?
+    var analysisHelpers = [String:C2ImageAnalysisHelper]()
     
     func getPhotoOutput(viewId: Int64) -> AVCapturePhotoOutput? {
         return activePreviewOutputs.object(forKey: NSNumber(value: viewId))
     }
     
     func onPreviewCreated(viewId: Int64, previewView: CameraPreviewView, previewArgs: CameraPreviewArgs) {
-        if let analysisOptions = previewArgs.analysisOptions, _analysisHelper == nil {
-            _analysisHelper = C2ImageAnalysisHelper(opts: analysisOptions)
+        previewArgs.analysisOptions.forEach { (key: String, opts: C2AnalysisOptions) in
+            analysisHelpers[key] = C2ImageAnalysisHelper(opts: opts)
+        }
+        if (!previewArgs.analysisOptions.isEmpty) {
+            analysisBitmapHelper = C2ImageAnalysisBitmapHelper(helpers: analysisHelpers)
         }
         
         let session = AVCaptureSession()
@@ -80,6 +79,11 @@ private class CameraProviderHolder {
         activePreviewOutputs.removeObject(forKey: key)
         
         activePreviews.removeObject(forKey: key)
+        
+        if (activePreviews.count == 0) {
+            analysisBitmapHelper = nil
+            analysisHelpers = [:]
+        }
     }
     
     func detachLastPreview() {
@@ -126,11 +130,14 @@ private class CameraProviderHolder {
             session.addOutput(output)
         }
         
-        if let analysisHelper = _analysisHelper {
+        if (!previewArgs.analysisOptions.isEmpty) {
+            guard let analysisBitmapHelper = analysisBitmapHelper else {
+                fatalError()
+            }
             let cvOutput = AVCaptureVideoDataOutput()
             cvOutput.alwaysDiscardsLateVideoFrames = true
             cvOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)]
-            cvOutput.setSampleBufferDelegate(analysisHelper, queue: analysisHelper.analysisImageQueue)
+            cvOutput.setSampleBufferDelegate(analysisBitmapHelper, queue: analysisBitmapHelper.queue)
             if session.canAddOutput(cvOutput) {
                 session.addOutput(cvOutput)
             }
@@ -160,7 +167,7 @@ private class CameraProviderHolder {
 
 private struct CameraPreviewArgs {
     let preferredPhotoSize: CGSize?
-    let analysisOptions: C2AnalysisOptions?
+    let analysisOptions: [String:C2AnalysisOptions]
     
     init(dictionary args: Dictionary<String, Any?>) {
         if let preferredPhotoWidth = args["preferredPhotoWidth"] as? Int, let preferredPhotoHeight = args["preferredPhotoHeight"] as? Int {
@@ -168,10 +175,15 @@ private struct CameraPreviewArgs {
         } else {
             self.preferredPhotoSize = nil
         }
-        if let analysisOptions = args["analysisOptions"] as? Dictionary<String, Any?> {
-            self.analysisOptions = C2AnalysisOptions(dictionary: analysisOptions)
+        if let analysisOptionsMap = args["analysisOptions"] as? Dictionary<String, Any?> {
+            self.analysisOptions = analysisOptionsMap.mapValues({
+                guard let analysisOptions = $0 as? Dictionary<String, Any?> else {
+                    fatalError()
+                }
+                return C2AnalysisOptions(dictionary: analysisOptions)
+            })
         } else {
-            self.analysisOptions = nil
+            self.analysisOptions = [:]
         }
     }
 }
@@ -302,7 +314,12 @@ private class CameraPreviewView: NSObject, FlutterPlatformView {
             inProgressPhotoCaptureDelegates[photoSettings.uniqueID] = delegate
             _cameraProviderHolder?.getPhotoOutput(viewId: _viewId)?.capturePhoto(with: photoSettings, delegate: delegate)
         case "requestImageForAnalysis":
-            if let bytes = _cameraProviderHolder?.analysisHelper?.lastFrame {
+            guard let args = call.arguments as? [String: Any] else {
+                result(nil)
+                return
+            }
+            let analysisOptionsId = args["analysisOptionsId"] as! String
+            if let bytes = _cameraProviderHolder?.analysisHelpers[analysisOptionsId]?.lastFrame {
                 result(FlutterStandardTypedData(bytes: bytes))
             } else {
                 result(nil)
